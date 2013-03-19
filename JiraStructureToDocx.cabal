@@ -1,0 +1,48 @@
+Name:           JiraStructureToDocx
+Version:        0.0
+Stability:      experimental
+Description:    Utility to convert a Structure in Jira to a MS Word document.
+License:        MIT
+License-file:   LICENSE
+Author:         Handré Petrus Stolp
+Maintainer:     HanStolpo@gmail.com
+Build-Type:     Simple
+Cabal-Version:  >=1.2
+
+executable JiraStructureToIssueHierarchy
+    main-is:            JiraStructureToIssueHierarchy.hs
+    hs-source-dirs:     src
+    Other-Modules:      DescriptionParser, ImageStripper, IssueHierarchy
+    build-depends:      base, 
+                        containers,
+                        http-conduit, 
+                        json, 
+                        aeson, 
+                        attoparsec, 
+                        pretty, 
+                        GenericPretty, 
+                        ghc-prim,
+                        directory,
+                        mtl,
+                        conduit,
+                        transformers,
+                        network,
+                        bytestring
+
+executable IssueHierarchyToDocx
+    main-is:            IssueHierarchyToDocx.hs
+    hs-source-dirs:     src
+    Other-Modules:      DescriptionParser, IssueHierarchy
+    build-depends:      base, 
+                        containers, 
+                        parsec, 
+                        pretty, 
+                        pandoc, 
+                        HUnit, 
+                        GenericPretty,
+                        ghc-prim,
+                        directory,
+                        mtl,
+                        conduit,
+                        transformers,
+                        bytestring
