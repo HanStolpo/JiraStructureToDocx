@@ -1,0 +1,4 @@
+#!/bin/bash
+./build
+cd dist/bin
+./IssueHierarchyToDocx.exe

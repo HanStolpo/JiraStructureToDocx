@@ -45,4 +45,6 @@ executable IssueHierarchyToDocx
                         mtl,
                         conduit,
                         transformers,
-                        bytestring
+                        bytestring,
+                        blaze-markup,
+                        utf8-string

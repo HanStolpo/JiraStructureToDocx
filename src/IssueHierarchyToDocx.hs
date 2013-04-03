@@ -13,7 +13,9 @@ import Text.PrettyPrint.GenericPretty as GP
 import System.Directory
 import Text.Pandoc
 import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Codec.Binary.UTF8.Generic as BS8
 import System.Directory
+import Text.Blaze.Renderer.String
 -- Local imports
 import IssueHierarchy
 import DescriptionParser
@@ -22,7 +24,9 @@ main = do
     cd <- getCurrentDirectory
     hierarchy :: IssueHierarchy <- liftM read $ readFile (cd ++ "/IssueHierarchy.txt") 
     let pandoc = Pandoc docMeta $ (concat $ map hierarchyToDoc $ ihChildren hierarchy)
-    writeFile (cd ++ "/IssueHierarchyDoc.txt") $ writeNative (docOptions cd) pandoc
+    writeFile (cd ++ "/IssueHierarchyDoc_Native.txt") $ writeNative (docOptions cd) pandoc
+    BS.writeFile (cd ++ "/IssueHierarchyDoc_MarkDown.txt") $ BS8.fromString $ writeMarkdown def pandoc
+    BS.writeFile (cd ++ "/IssueHierarchyDoc_HTML.html") $ BS8.fromString $ (renderMarkup $ writeHtml (docOptions cd) pandoc)
     doc <- writeDocx (docOptions cd) pandoc
     BS.writeFile (cd ++ "/IssueHierarchy.docx") doc 
     return ()
