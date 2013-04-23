@@ -493,22 +493,22 @@ descriptionParserTests = test
             "prsBulletList" ~: Right (BulletList [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ]  ]) 
                             ~=? testP prsBulletList "* Gordon *gordon*\n* Ramsy",
         
-            "prsNumberedList" ~: Right (OrderedList (1, DefaultStyle, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ]) 
+            "prsNumberedList" ~: Right (OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ]) 
                             ~=? testP prsNumberedList "# Gordon *gordon*\n# Ramsy",
                 
-            "prsNumberedList 2" ~: Right  [(OrderedList (1, DefaultStyle, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ])]
+            "prsNumberedList 2" ~: Right  [(OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ])]
                              ~=? testP prsBlocks "# Gordon *gordon*\n# Ramsy",
 
-            "prsNumberedList 3" ~: Right [ OrderedList (1, DefaultStyle, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ]  ]
+            "prsNumberedList 3" ~: Right [ OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ]  ]
                                          , Header 1 nullAttr [ Str "Ramsy" ]  
                                          ] 
                              ~=? testP prsBlocks "# Gordon *gordon*\nh1. Ramsy",
 
-            "prsNumberedList 4" ~: Right (OrderedList (1, DefaultStyle, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]], OrderedList (1, DefaultStyle, DefaultDelim)[ [ Para [Str "Ramsy"] ] ] ]  ]) 
+            "prsNumberedList 4" ~: Right (OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]], OrderedList (1, LowerRoman, DefaultDelim)[ [ Para [Str "Ramsy"] ] ] ]  ]) 
                             ~=? testP prsNumberedList "# Gordon *gordon*\n## Ramsy",
 
-            "prsNumberedList 5" ~: Right (OrderedList (1, DefaultStyle, DefaultDelim) [  [ Para [Str "Gordon"] , OrderedList (1, DefaultStyle, DefaultDelim)[ [ Para [Str "Ramsy"] ] ] ]
-                                                                                      ,  [ Para [Str "Sally"] ,  OrderedList (1, DefaultStyle, DefaultDelim)[ [ Para [Str "Blah"] ] ] ] 
+            "prsNumberedList 5" ~: Right (OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon"] , OrderedList (1, LowerRoman, DefaultDelim)[ [ Para [Str "Ramsy"] ] ] ]
+                                                                                      ,  [ Para [Str "Sally"] ,  OrderedList (1, LowerRoman, DefaultDelim)[ [ Para [Str "Blah"] ] ] ] 
                                                                                      ]) 
                             ~=? testP prsNumberedList "# Gordon\n## Ramsy\n# Sally\n## Blah",
 

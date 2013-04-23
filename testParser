@@ -1,0 +1,4 @@
+#!/bin/bash
+cls
+cabal build
+cabal test test-parser

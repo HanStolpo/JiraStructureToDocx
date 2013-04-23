@@ -7,7 +7,7 @@ License-file:   LICENSE
 Author:         Handré Petrus Stolp
 Maintainer:     HanStolpo@gmail.com
 Build-Type:     Simple
-Cabal-Version:  >=1.2
+Cabal-Version:  >= 1.9.2
 
 executable JiraStructureToIssueHierarchy
     main-is:            JiraStructureToIssueHierarchy.hs
@@ -27,7 +27,10 @@ executable JiraStructureToIssueHierarchy
                         conduit,
                         transformers,
                         network,
-                        bytestring
+                        bytestring,
+                        HUnit,
+                        pandoc,
+                        parsec
 
 executable IssueHierarchyToDocx
     main-is:            IssueHierarchyToDocx.hs
@@ -47,4 +50,28 @@ executable IssueHierarchyToDocx
                         transformers,
                         bytestring,
                         blaze-markup,
+                        utf8-string,
+                        aeson 
+
+Test-Suite test-parser
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     testsuite, src
+    main-is:            TestDescriptionParser.hs
+    other-modules:      DescriptionParser
+    build-depends:      base, 
+                        Cabal >= 1.9.2,
+                        containers, 
+                        parsec, 
+                        pretty, 
+                        pandoc, 
+                        HUnit, 
+                        GenericPretty,
+                        ghc-prim,
+                        directory,
+                        mtl,
+                        conduit,
+                        transformers,
+                        bytestring,
+                        blaze-markup,
                         utf8-string
+
