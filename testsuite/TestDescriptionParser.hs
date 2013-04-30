@@ -1,13 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
-
-{-module TestDescriptionParser (tests) where-}
-
-{-import Distribution.TestSuite-}
-{-import Distribution.TestSuite.HUnit-}
-{-import DescriptionParser-}
-{-import Test.HUnit-}
-
-{-tests = descriptionParserTests-}
+ -- GHC_STATIC_OPTION_i=../src:../testsuite
 
 
 module Main where

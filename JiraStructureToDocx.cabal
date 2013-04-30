@@ -30,7 +30,8 @@ executable JiraStructureToIssueHierarchy
                         bytestring,
                         HUnit,
                         pandoc,
-                        parsec
+                        parsec,
+                        pandoc-types
 
 executable IssueHierarchyToDocx
     main-is:            IssueHierarchyToDocx.hs
@@ -51,7 +52,8 @@ executable IssueHierarchyToDocx
                         bytestring,
                         blaze-markup,
                         utf8-string,
-                        aeson 
+                        aeson,
+                        pandoc-types
 
 Test-Suite test-parser
     type:               exitcode-stdio-1.0
@@ -73,5 +75,6 @@ Test-Suite test-parser
                         transformers,
                         bytestring,
                         blaze-markup,
-                        utf8-string
+                        utf8-string,
+                        pandoc-types
 
