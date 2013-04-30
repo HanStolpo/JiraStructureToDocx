@@ -1,6 +1,7 @@
 -- Blah blah
  {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse#-}
 import Network.HTTP.Conduit
+import Network.HTTP.Types.Status
 import Data.Conduit
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Char8 as B
@@ -210,10 +211,14 @@ localizeImages manager usrn pwd baseurl im = do
 
 
 getImage manager usrn pwd img@(Image origUrl url _) = do
-    let req = applyBasicAuth usrn pwd $ (fromJust $ parseUrl url)
+    let req = (applyBasicAuth usrn pwd $ (fromJust $ parseUrl url)) {checkStatus = \_ _ _ -> Nothing}
     res <- http req manager
-    (responseBody res) C.$$+- sinkFile ("./Images/" ++ fn)
-    return $ trace (GP.pretty (img, fn)) $ img {imgUrl = ("./Images/" ++ fn)}
+    if responseStatus res == ok200 
+        then do
+            (responseBody res) C.$$+- sinkFile ("./Images/" ++ fn)
+            return $ img {imgUrl = ("./Images/" ++ fn)}
+        else do
+            return $ trace ("Failed looking up image" ++ GP.pretty (img, fn)) $ img 
     where 
         fn = reverse . (takeWhile cnd) . reverse $ url
         cnd '/' = False

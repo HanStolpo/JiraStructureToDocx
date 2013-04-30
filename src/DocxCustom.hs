@@ -1,3 +1,4 @@
+-- DocX writer copied from pandoc so that it may be hacked at for some custom mods
 {-# LANGUAGE ScopedTypeVariables #-}
 {-
 Copyright (C) 2012 John MacFarlane <jgm@berkeley.edu>
@@ -28,7 +29,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 Conversion of 'Pandoc' documents to docx.
 -}
-module Text.Pandoc.Writers.Docx ( writeDocx ) where
+module Text.Pandoc.Writers.DocxCustom ( writeDocxCustom ) where -- module Text.Pandoc.Writers.Docx ( writeDocx ) where
 import Data.List ( intercalate, groupBy )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL

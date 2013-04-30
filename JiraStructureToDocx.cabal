@@ -16,6 +16,7 @@ executable JiraStructureToIssueHierarchy
     build-depends:      base, 
                         containers,
                         http-conduit, 
+                        http-types, 
                         json, 
                         aeson, 
                         attoparsec, 
