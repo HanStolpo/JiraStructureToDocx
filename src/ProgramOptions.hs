@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable, RecordWildCards #-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
--- RUN_GHC_COMMAND_ARGS = --fetch-only --url=http://srv1.za.5dt.com:8090/
+-- RUN_GHC_COMMAND_ARGS = --gen-doc-only --hierarchy-file=../bin/IssueHierarchy.txt
 
 module ProgramOptions   ( Operation(..)
                         , Options(..)
@@ -9,9 +9,9 @@ module ProgramOptions   ( Operation(..)
  
 import System.Console.CmdArgs.Implicit
 import System.Directory
-import System.FilePath
 import System.IO
-import Data.Data
+import Control.Monad(unless)
+import Safe
 
 data Operation =  FetchOnly         --- Fetch the structure only and don't generate the document
                 | GenDocOnly        --- Generate the document only
@@ -21,39 +21,52 @@ data Options = Options  { optOperation      :: Operation
                         , optUsr            :: Maybe String
                         , optPwd            :: Maybe String
                         , optBaseUrl        :: Maybe String
+                        , optStructureId    :: Maybe Int
                         , optHierarchyFile  :: String
                         , optDocxFile       :: String
                         } deriving (Show, Data, Typeable)
 
-defH = "StructureHierarchy.txt"
-defD = "Structure.docx"
+options :: Options
 options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= name "fetch-only"    &= help "Only fetch the structure hierarchy from JIRA"
                                                 , GenDocOnly    &= explicit &= name "gen-doc-only"  &= help "Only generate the document given a structure hierarchy previously fetched from JIRA"]
                   , optUsr              = def  &= explicit &= name "usr"            &= help "user name"
                   , optPwd              = def  &= explicit &= name "pwd"            &= help "password"
                   , optBaseUrl          = def  &= explicit &= name "url"            &= help "the base URL to the JIRA instance"
+                  , optStructureId      = def  &= explicit &= name "sid"            &= help "the ID of the JIRA structure"
                   , optHierarchyFile    = defH &= explicit &= name "hierarchy-file" &= help "the name of the hierarchy file that will be used" &= opt defH
                   , optDocxFile         = defD &= explicit &= name "document-file"  &= help "the name of the document file that will be generated" &= opt defD
                   } &= program "JiraStructureToDocX"
+            where
+                defH = "StructureHierarchy.txt"
+                defD = "Structure.docx"
 
 processCmdArgs :: IO Options
 processCmdArgs =  cmdArgs options >>= validate
 
 validate :: Options -> IO Options
 
-validate opt@(Options {optOperation =  GenDocOnly, ..}) = do
+validate opts@(Options {optOperation =  GenDocOnly, ..}) = do
     ph <- validateHierarchyFile optHierarchyFile
     pd <- canonicalizePath optDocxFile
-    return opt {optHierarchyFile = ph, optDocxFile = pd}
+    return opts {optHierarchyFile = ph, optDocxFile = pd}
     
-validate opt@(Options {optOperation =  FetchOnly, ..}) = do
+validate opts@(Options {optOperation =  FetchOnly, ..}) = do
     url <- validateUrl optBaseUrl
     usr <- validateUrs optUsr
     pwd <- validatePwd optPwd
-    return opt {optBaseUrl = Just url, optUsr = Just usr, optPwd = Just pwd}
+    ph <- canonicalizePath optHierarchyFile
+    return opts { optBaseUrl = Just url
+                , optUsr = Just usr
+                , optPwd = Just pwd
+                , optHierarchyFile = ph
+                , optStructureId = Just $ fromJustNote "Structure Id is required" optStructureId
+                }
 
 validateHierarchyFile :: String -> IO String
-validateHierarchyFile ph =  canonicalizePath ph >>= doesFileExist >>= (\b -> if b then return ph else fail $ "Hierarchy file does not exits :" ++ ph)
+validateHierarchyFile ph =  do
+    ph' <- canonicalizePath ph
+    doesFileExist ph' >>= flip unless (fail $ "Hierarchy file does not exits :" ++ ph)
+    return ph'
 
 validateUrl :: Maybe String -> IO String
 validateUrl (Just s) = return s
@@ -73,7 +86,7 @@ validatePwd Nothing =  do
     return s
 
 
-main = do 
-    o <- processCmdArgs
-    print o
-    return ()
+{-main = do -}
+    {-o <- processCmdArgs-}
+    {-print o-}
+    {-return ()-}

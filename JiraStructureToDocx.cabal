@@ -9,10 +9,10 @@ Maintainer:     HanStolpo@gmail.com
 Build-Type:     Simple
 Cabal-Version:  >= 1.9.2
 
-executable JiraStructureToIssueHierarchy
-    main-is:            JiraStructureToIssueHierarchy.hs
+executable JiraStructureToDocx
+    main-is:            JiraStructureToDocx.hs
     hs-source-dirs:     src
-    Other-Modules:      DescriptionParser, ImageStripper, IssueHierarchy
+    Other-Modules:      DescriptionParser, ImageStripper, IssueHierarchy, ProgramOptions, IssueHierarchyToDocx, JiraStructureToIssueHierarchy
     build-depends:      base, 
                         containers,
                         http-conduit, 
@@ -32,29 +32,12 @@ executable JiraStructureToIssueHierarchy
                         HUnit,
                         pandoc,
                         parsec,
-                        pandoc-types
-
-executable IssueHierarchyToDocx
-    main-is:            IssueHierarchyToDocx.hs
-    hs-source-dirs:     src
-    Other-Modules:      DescriptionParser, IssueHierarchy
-    build-depends:      base, 
-                        containers, 
-                        parsec, 
-                        pretty, 
-                        pandoc, 
-                        HUnit, 
-                        GenericPretty,
-                        ghc-prim,
-                        directory,
-                        mtl,
-                        conduit,
-                        transformers,
-                        bytestring,
+                        pandoc-types,
+                        cmdargs,
+                        safe,
                         blaze-markup,
-                        utf8-string,
-                        aeson,
-                        pandoc-types
+                        utf8-string
+
 
 Test-Suite test-parser
     type:               exitcode-stdio-1.0
