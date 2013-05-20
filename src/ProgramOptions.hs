@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, RecordWildCards #-}
+{-# LANGUAGE DeriveDataTypeable, RecordWildCards, DeriveGeneric #-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 -- RUN_GHC_COMMAND_ARGS = --gen-doc-only --hierarchy-file=../bin/IssueHierarchy.txt
 
@@ -12,10 +12,14 @@ import System.Directory
 import System.IO
 import Control.Monad(unless)
 import Safe
+import GHC.Generics
+import Text.PrettyPrint.GenericPretty as GP
 
 data Operation =  FetchOnly         --- Fetch the structure only and don't generate the document
                 | GenDocOnly        --- Generate the document only
-                deriving (Show, Data, Typeable)
+                deriving (Show, Data, Typeable, Generic)
+-- Make Operation pretty printable
+instance Out Operation
 
 data Options = Options  { optOperation      :: Operation
                         , optUsr            :: Maybe String
@@ -24,7 +28,9 @@ data Options = Options  { optOperation      :: Operation
                         , optStructureId    :: Maybe Int
                         , optHierarchyFile  :: String
                         , optDocxFile       :: String
-                        } deriving (Show, Data, Typeable)
+                        } deriving (Show, Data, Typeable, Generic)
+-- Make Options pretty printable
+instance Out Options
 
 options :: Options
 options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= name "fetch-only"    &= help "Only fetch the structure hierarchy from JIRA"

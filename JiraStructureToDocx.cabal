@@ -11,6 +11,7 @@ Cabal-Version:  >= 1.9.2
 
 executable JiraStructureToDocx
     main-is:            JiraStructureToDocx.hs
+    GHC-Options:        -Wall -O4 -optc-Os
     hs-source-dirs:     src
     Other-Modules:      DescriptionParser, ImageStripper, IssueHierarchy, ProgramOptions, IssueHierarchyToDocx, JiraStructureToIssueHierarchy
     build-depends:      base, 
@@ -36,7 +37,9 @@ executable JiraStructureToDocx
                         cmdargs,
                         safe,
                         blaze-markup,
-                        utf8-string
+                        utf8-string,
+                        filepath,
+                        hashable == 1.1.2.5
 
 
 Test-Suite test-parser
