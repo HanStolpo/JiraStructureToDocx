@@ -39,7 +39,13 @@ executable JiraStructureToDocx
                         blaze-markup,
                         utf8-string,
                         filepath,
-                        hashable == 1.1.2.5
+                        hashable == 1.1.2.5,
+                        test-framework-th,
+                        test-framework,
+                        test-framework-hunit,
+                        raw-strings-qq,
+                        resourcet,
+                        monad-control
 
 
 Test-Suite test-parser
