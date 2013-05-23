@@ -33,6 +33,7 @@ import System.FilePath
 import IssueHierarchy
 import ImageStripper
 import ProgramOptions
+import JiraTypes
 
  
 fetchHierarchy :: Options -> IO ()
@@ -144,43 +145,6 @@ buildForest listIdDepth = Forest Nothing (fst $ makeC (-1) listIdDepth)
                     
                 
 
----------------------------------------------------------------------------
--- Class to represent the JASON of an issue
-
-data JsIssue = JsIssue
-    {
-        jsiKey :: String,               -- The issue key
-        jsiSummary :: String,           -- The summary field 
-        jsiDescription :: Maybe String, -- The optional description field
-        jsiAttachments :: [Attachment]  -- The list of optional attachments
-    } 
-    deriving (Show, Generic)
-
--- Specify JSON parser for JsIssue 
-instance FromJSON JsIssue where
-    parseJSON (AS.Object v) = do
-        key <- v AS..: "key"
-        fields <- v AS..: "fields"
-        summary <- fields AS..: "summary"
-        description <- fields AS..:? "description"
-        attachments <- fields AS..:? "attachment" AS..!= []
-        return $ JsIssue key summary description attachments
-    parseJSON _ = error "Expecting JSON object for JsIssue"
-
--- From some reason the aeson parser concs out on valid input when running the build executable from
--- the command line but it does not happen when running as a script though runghc. I am not sure why
--- obviously I am doing something wrong. So parsing JSON rencoding it then giving it to aeson.
-decodeJsIssue :: Monad m => L.ByteString -> m JsIssue
-decodeJsIssue s = decJs >>= encJs >>= decIssue
-    where
-        s' = L8.unpack s 
-        decJs = case JS.decode s' of
-            JS.Ok a -> return $ JS.pp_js_object a
-            JS.Error e -> fail ("JASON response failure : " ++ e ++ ": \noriginal was:\n" ++ s')
-        encJs d = return $ render d
-        decIssue s'' = case AS.eitherDecode . L8.pack $ s'' of
-                        Left e -> fail $ "Error decoding JASON for issue : " ++ e ++ ":\nreceived was:\n" ++ s' ++ "\npretty printed:\n" ++ s''
-                        Right f -> return f
 
 
 ---------------------------------------------------------------------------

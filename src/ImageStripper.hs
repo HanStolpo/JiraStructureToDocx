@@ -8,6 +8,7 @@ import IssueHierarchy
 import DescriptionParser
 import qualified Data.Map as M
 import Data.List
+import JiraTypes
 
 -----------------------------------------------------------------------------
 --
