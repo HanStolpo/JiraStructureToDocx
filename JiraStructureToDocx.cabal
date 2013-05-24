@@ -45,7 +45,8 @@ executable JiraStructureToDocx
                         test-framework-hunit,
                         raw-strings-qq,
                         resourcet,
-                        monad-control
+                        monad-control,
+                        errors
 
 
 Test-Suite test-parser

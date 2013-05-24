@@ -14,9 +14,11 @@ module ZephyrJson   ( TestStatus(..)
                     , TestStepInfo(..)
                     , TestStepResult(..)
                     , Schedule(..)
+                    , Cycle(..)
                     , decodeCycleResponse
                     , decodeTestStepsResponse
                     , decodeTestStepResultsResponse
+                    , decodeProjectCyclesResponse
                     , zephyrJsonTestGroup
                     ) where
 
@@ -34,6 +36,7 @@ import qualified Data.Map as M
 import Data.Maybe(fromMaybe, isJust)
 import Control.Applicative(pure, (<$>), (<|>), (<*>))
 import Data.List(find)
+import Data.ByteString.Lazy.Char8(unpack)
 
 zephyrJsonTestGroup ::  Test.Framework.Test
 zephyrJsonTestGroup = $(testGroupGenerator)
@@ -116,10 +119,10 @@ instance AS.FromJSON ScheduleDef_ where
         issueKey' <- v AS..: "issueKey"
         issueId' <- v AS..: "issueID"
         summary' <- v AS..: "summary"
-        executedOn' <- v AS..: "executedOn"
-        executedBy' <- v AS..: "executedByDisplay"
+        executedOn' <- v AS..:? "executedOn" AS..!= ""
+        executedBy' <- v AS..:? "executedByDisplay" AS..!= ""
         executionStatus' <- v AS..: "executionStatus"
-        comment' <- v AS..: "comment"
+        comment' <- v AS..:? "comment" AS..!= ""
         return ScheduleDef_ {executionStatus = executionStatus', schedule = Schedule {  scheduleCycleId =scheduleCycleId',
                                                                                         scheduleId =scheduleId',
                                                                                         issueKey =issueKey',
@@ -172,14 +175,15 @@ instance Out StatusMap_ where
     doc  = GP.docList . M.toList
     docPrec _  = GP.docList . M.toList
 
-data Cycle_ = Cycle_ {statusDefs :: StatusMap_, schedules :: [ScheduleDef_]} deriving (Eq, Show, Read, Generic)
+data Cycle_ = Cycle_ {statusDefs :: StatusMap_, schedules :: [ScheduleDef_], totalSchedules :: Int} deriving (Eq, Show, Read, Generic)
 instance Out Cycle_
 
 instance AS.FromJSON Cycle_ where
     parseJSON (AS.Object v) = do
         schedules' <- v AS..: "schedules"
         statusDefs' <- v AS..: "status"
-        return Cycle_ {schedules = schedules', statusDefs = statusDefs'}
+        totalSchedules' <- v AS..: "recordsCount"
+        return Cycle_ {schedules = schedules', statusDefs = statusDefs', totalSchedules = totalSchedules'}
     parseJSON a = AS.typeMismatch "Cycle_" a
 
 _schedulesFromCycle :: Cycle_ -> [Schedule]
@@ -187,8 +191,8 @@ _schedulesFromCycle Cycle_ {..} = map toS schedules
     where
         toS ScheduleDef_{..} = schedule {status =  fromMaybe NullTestStatus $ _testStatusFromDef <$> M.lookup executionStatus statusDefs}
 
-decodeCycleResponse :: ByteString -> Either String [Schedule]
-decodeCycleResponse = fmap _schedulesFromCycle . AS.eitherDecode 
+decodeCycleResponse :: ByteString -> Either String ([Schedule], Int)
+decodeCycleResponse  = fmap mkTpl . AS.eitherDecode where  mkTpl c = (_schedulesFromCycle c, totalSchedules c)
 
 case_decodeCycleSchedules ::  Assertion
 case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
@@ -212,7 +216,8 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                                                                                             summary = "summaryBlah2",
                                                                                             executedOn = "executedOnBlah2",
                                                                                             executedBy = "executedByDisplayBlah2",
-                                                                                            comment = "commentBlah2" }}]
+                                                                                            comment = "commentBlah2" }}],
+                      totalSchedules = 34
                     }
         s = [r|{"status": { "1": {"id":  1, "color": "#75B000", "desc": "blah", "name": "PASS"},
                             "2": {"id":  2, "color": "#CC3300", "desc": "blah", "name": "FAIL"}}, 
@@ -251,7 +256,9 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                             "versionID": -1,
                             "issueKey": "LYNX-992",
                             "scheduleID": 76,
-                            "comment": "commentBlah2"}]
+                            "comment": "commentBlah2"}],
+                "currentlySelectedScheduleId": "", 
+                "recordsCount": 34
                 }
             |]
 
@@ -274,13 +281,13 @@ instance AS.FromJSON TestStepInfo where
     parseJSON (AS.Object v) = TestStepInfo <$>
                                 v AS..: "id" <*>
                                 v AS..: "orderId" <*>
-                                v AS..: "step" <*>
-                                v AS..: "data" <*>
-                                v AS..: "result"
+                                v AS..:? "step" AS..!= "" <*>
+                                v AS..:? "data" AS..!= "" <*>
+                                v AS..:? "result" AS..!= "" 
     parseJSON a = AS.typeMismatch "TestStepInfo" a
 
 decodeTestStepsResponse :: ByteString -> Either String [TestStepInfo]
-decodeTestStepsResponse = AS.eitherDecode 
+decodeTestStepsResponse s = either (\l -> Left (l ++ unpack s)) (\r' -> Right r') $ AS.eitherDecode s
 
 case_decodeTestStepInfo ::  Assertion
 case_decodeTestStepInfo = Right expected @=? AS.eitherDecode s
@@ -314,7 +321,7 @@ instance AS.FromJSON TestStepResult where
             stepResInfoId' <- v AS..: "stepId" 
             status <- v AS..: "status"
             executionStatus <- v AS..: "executionStatus"
-            stepResComment' <- v AS..: "comment"
+            stepResComment' <- v AS..:? "comment" AS..!= ""
             return TestStepResult {stepResId = stepResId', stepResInfoId = stepResInfoId', stepResStatus = toS status executionStatus, stepResComment = stepResComment'}
             where
                 toS :: String -> [StatusDef_] -> TestStatus
@@ -375,17 +382,17 @@ instance AS.FromJSON ProjectCycleElem_ where
     parseJSON o@(AS.Object _) =  ProjectCycleElem_ . Just <$> AS.parseJSON o
     parseJSON _ = pure $ ProjectCycleElem_ Nothing
 
-parseProjectCyclesResponse :: ByteString -> Either String [Cycle]
-parseProjectCyclesResponse = fmap (map cmb . filter (isJust . _projCycleElem . snd) . M.toList) . decodeMap
+decodeProjectCyclesResponse :: ByteString -> Either String [Cycle]
+decodeProjectCyclesResponse = fmap (map cmb . filter (isJust . _projCycleElem . snd) . M.toList) . decodeMap
     where
         decodeMap :: ByteString -> Either String (M.Map String ProjectCycleElem_)
         decodeMap = AS.eitherDecode
         cmb :: (String, ProjectCycleElem_) -> Cycle
         cmb (s, ProjectCycleElem_ (Just c)) = c {cycleId = read s}
-        cmb _ = error "parseProjectCyclesResponse - should not be here"
+        cmb _ = error "decodeProjectCyclesResponse - should not be here"
 
 case_decodeProjectCycles ::  Assertion
-case_decodeProjectCycles = Right expected @=? parseProjectCyclesResponse s
+case_decodeProjectCycles = Right expected @=? decodeProjectCyclesResponse s
     where
         expected =  [ Cycle {cycleId = -1, cycleName = "Ad hoc", cycleDesc = ""}
                     , Cycle {cycleId = 1, cycleName = "Sprint 2 Dry run", cycleDesc = ""}

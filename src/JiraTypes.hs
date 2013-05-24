@@ -61,7 +61,8 @@ data JsIssue = JsIssue
         jsiDescription :: Maybe String, -- The optional description field
         jsiAttachments :: [Attachment]  -- The list of optional attachments
     } 
-    deriving (Eq, Show, Generic)
+    deriving (Eq, Show, Read, Generic)
+instance Out JsIssue
 
 -- Specify JSON parser for JsIssue 
 instance AS.FromJSON JsIssue where

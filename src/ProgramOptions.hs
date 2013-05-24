@@ -4,6 +4,7 @@
 
 module ProgramOptions   ( Operation(..)
                         , Options(..)
+                        , optionsDefault
                         , processCmdArgs
                         ) where
  
@@ -28,9 +29,21 @@ data Options = Options  { optOperation      :: Operation
                         , optStructureId    :: Maybe Int
                         , optHierarchyFile  :: String
                         , optDocxFile       :: String
+                        , optProjectId      :: Maybe Int
                         } deriving (Show, Data, Typeable, Generic)
 -- Make Options pretty printable
 instance Out Options
+
+optionsDefault :: Options
+optionsDefault = Options { optOperation = FetchOnly
+                         , optUsr = Nothing
+                         , optPwd = Nothing
+                         , optBaseUrl = Nothing
+                         , optStructureId = Nothing
+                         , optHierarchyFile = "StructureHierarchy.txt"
+                         , optDocxFile = "Structure.docx"
+                         , optProjectId = Nothing
+                         }
 
 options :: Options
 options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= name "fetch-only"    &= help "Only fetch the structure hierarchy from JIRA"
@@ -41,10 +54,11 @@ options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= n
                   , optStructureId      = def  &= explicit &= name "sid"            &= help "the ID of the JIRA structure"
                   , optHierarchyFile    = defH &= explicit &= name "hierarchy-file" &= help "the name of the hierarchy file that will be used" &= opt defH
                   , optDocxFile         = defD &= explicit &= name "document-file"  &= help "the name of the document file that will be generated" &= opt defD
+                  , optProjectId        = def  &= explicit &= name "projid"         &= help "the ID of the JIRA project"
                   } &= program "JiraStructureToDocX"
             where
-                defH = "StructureHierarchy.txt"
-                defD = "Structure.docx"
+                defH = optHierarchyFile optionsDefault
+                defD = optDocxFile optionsDefault
 
 processCmdArgs :: IO Options
 processCmdArgs =  cmdArgs options >>= validate
