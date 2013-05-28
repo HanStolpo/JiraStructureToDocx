@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse#-}
--- RUN_GHC_COMMAND_ARGS = --fetch-only --url=http://srv1.za.5dt.com:8090 --sid=101 --hierarchy-file=../bin/LynxSssIssueHierarchy.txt
+-- RUN_GHC_COMMAND_ARGS = --fetch-str --url=http://srv1.za.5dt.com:8090 --cycle-name=Sprint\ 2\ Demonstrations --str-std-file=../Outputs/str.txt
+-- xUN_GHC_COMMAND_ARGS = --help
 
 import System.Exit(exitSuccess)
 import Text.PrettyPrint.GenericPretty as GP
@@ -7,6 +8,7 @@ import Text.PrettyPrint.GenericPretty as GP
 import JiraStructureToIssueHierarchy
 import IssueHierarchyToDocx
 import ProgramOptions
+import StdStrFetch
  
 main :: IO Int
 main = do
@@ -15,7 +17,10 @@ main = do
     case optOperation opts of
         FetchOnly -> putStrLn ("Fetching issue hierarchy" ++ optsText)  >> fetchHierarchy opts
         GenDocOnly -> putStrLn ("Generating document" ++ optsText) >> genDoc opts
+        FetchStr -> putStrLn ("Fetching STR" ++ optsText)  >> fetchStrSrc opts
+        FetchStd -> putStrLn ("Fetching STR" ++ optsText)  >> fetchStdSrc opts
+        GenDocStr -> fail "not implemented yet"
+        GenDocStd -> fail "not implemented yet"
     exitSuccess
-
 
 

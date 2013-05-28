@@ -27,7 +27,7 @@ import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.Framework.TH
 import Data.ByteString.Lazy.Char8 (ByteString)     -- only import string instances for overloaded strings
-import Control.Applicative((<$>))
+import Control.Applicative((<$>), (<*>), (<|>))
 
 jiraTypesTestGroup ::  Test.Framework.Test
 jiraTypesTestGroup = $(testGroupGenerator)
@@ -50,6 +50,34 @@ instance AS.FromJSON Attachment where
         return Attachment {attMimeType = mimeType, attFileName = fileName, attUri = content}
     parseJSON a = AS.typeMismatch "Expecting JSON object for Attachment" a
 
+data IssueLinkType_ = IssueLinkType_{_inwardDesc :: String, _outwardDesc :: String}
+instance AS.FromJSON IssueLinkType_ where
+    parseJSON (AS.Object v) = IssueLinkType_ <$> v AS..: "inward" <*> v AS..: "outward"
+    parseJSON a = AS.typeMismatch "Expecting JSON object for IssueLinkType_" a
+
+data IssueLinkData_ = IssueLinkData_{_linkedIssueId :: Int, _linkedIssueKey :: String}
+instance AS.FromJSON IssueLinkData_ where
+    parseJSON (AS.Object v) = IssueLinkData_ <$> fmap read (v AS..: "id") <*> v AS..: "key"
+    parseJSON a = AS.typeMismatch "Expecting JSON object for IssueLinkData_" a
+
+data IssueLink = Outward String Int String | Inward String Int String -- Direction Description IssueId IssueKey
+                 deriving (Eq, Show, Read, Generic)
+instance Out IssueLink
+
+_makeInwardLink :: IssueLinkData_ -> IssueLinkType_ -> IssueLink
+_makeInwardLink d t = Inward (_inwardDesc t) (_linkedIssueId d) (_linkedIssueKey d)
+
+_makeOutwardLink :: IssueLinkData_ -> IssueLinkType_ -> IssueLink
+_makeOutwardLink d t = Outward (_outwardDesc t) (_linkedIssueId d) (_linkedIssueKey d)
+
+instance AS.FromJSON IssueLink where
+    parseJSON (AS.Object v) = (_makeInwardLink <$> v AS..: "inwardIssue" <*> v AS..: "type") 
+                            <|> 
+                             (_makeOutwardLink <$> v AS..: "outwardIssue" <*> v AS..: "type")
+                             
+    parseJSON a = AS.typeMismatch "Expecting JSON object for  IssueLink" a
+        
+
 ---------------------------------------------------------------------------
 -- Class to represent the JASON of an issue
 
@@ -59,7 +87,9 @@ data JsIssue = JsIssue
         jsiKey :: String,               -- The issue key
         jsiSummary :: String,           -- The summary field 
         jsiDescription :: Maybe String, -- The optional description field
-        jsiAttachments :: [Attachment]  -- The list of optional attachments
+        jsiStatus :: String,
+        jsiAttachments :: [Attachment], -- The list of optional attachments
+        jsiIssueLinks :: [IssueLink]
     } 
     deriving (Eq, Show, Read, Generic)
 instance Out JsIssue
@@ -72,8 +102,11 @@ instance AS.FromJSON JsIssue where
         fields <- v AS..: "fields"
         summary <- fields AS..: "summary"
         description <- fields AS..:? "description"
+        statusObj <- fields AS..: "status"
+        status <- statusObj AS..: "name"
         attachments <- fields AS..:? "attachment" AS..!= []
-        return $ JsIssue ident key summary description attachments
+        issueLinks <- fields AS..:? "issuelinks" AS..!= []
+        return $ JsIssue ident key summary description status attachments issueLinks
     parseJSON a = AS.typeMismatch "Expecting JSON object for JsIssue" a
 
 decodeJsIssue :: Monad m => ByteString -> m JsIssue
@@ -87,7 +120,9 @@ decodeJsIssueResponse = AS.eitherDecode
 case_decodeJsIssueResponse :: Assertion
 case_decodeJsIssueResponse = Right expected @=? decodeJsIssueResponse s
     where
-        expected = JsIssue 15846 "LYNX-853" "summaryBlah" (Just "descriptionBlah") []
+        expected = JsIssue 15846 "LYNX-853" "summaryBlah" (Just "descriptionBlah") "Resolved"
+                    [] 
+                    [(Inward "relates to" 15824 "LYNX-831"), (Outward "tests" 15498 "LYNX-619")]
         s = [r|{"expand": "renderedFields,names,schema,transitions,operations,editmeta,changelog",
                 "id": "15846",
                 "self": "http://jira.server.com/rest/api/latest/issue/15846",
@@ -201,5 +236,5 @@ case_decodeJsIssueResponse = Right expected @=? decodeJsIssueResponse s
 -------------------------------------------------
 -- Debug main
 ------------------------------------------------
-{-main :: IO ()-}
-{-main = defaultMain [jiraTypesTestGroup]-}
+main :: IO ()
+main = defaultMain [jiraTypesTestGroup]

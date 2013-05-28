@@ -7,7 +7,6 @@ module StdStrFetch  (fetchStdSrc
 import GHC.Exts
 
 import Network.HTTP.Conduit
-
 import Data.ByteString.Lazy.Char8 ()
 import Data.ByteString.Char8 as B (pack)
 
@@ -21,6 +20,12 @@ import ProgramOptions
 import JiraTypes
 import ZephyrJson
 import StrStdTypes
+import Network.Socket(withSocketsDo)
+import Control.Monad.IO.Class(liftIO)
+import System.Directory(createDirectoryIfMissing)
+import System.FilePath(dropFileName)
+import Text.PrettyPrint.GenericPretty as GP
+import Debug.Trace(trace)
 
 
 type Query_ a b = forall m. (MonadBaseControl IO m, MonadResource m) =>
@@ -33,7 +38,7 @@ _fromEither :: Monad m => Either String b -> m b
 _fromEither = either fail return 
 
 _makeReq :: (MonadBaseControl IO m, MonadResource m) => Options -> String -> Request m
-_makeReq opts url'' = applyBasicAuth usr pwd url
+_makeReq opts url'' = (applyBasicAuth usr pwd url) {responseTimeout = Just (30 * 1000000)}
         where
             usr = pack . fromJust . optUsr $ opts
             pwd = pack . fromJust . optPwd $ opts 
@@ -89,11 +94,19 @@ fetchStdTestSrc opts man sc = do
     steps <- _fromEither =<< fetchTestStepInfos opts man iid
     return $ Right StdTestSrc{stdIssue = issue, stdSteps = steps}
 
-fetchStdSrc :: Query_ String StdSrc
-fetchStdSrc opts man cn = do
+_fetchStdSrc :: Query_ String StdSrc
+_fetchStdSrc opts man cn = do
     cid <- _fromEither =<< fetchCycleIdFromName opts man cn 
     scs <- _fromEither =<< fetchCycleSchedules opts man cid
     Right . StdSrc <$> forM scs (_fromEither <=< fetchStdTestSrc opts man)
+
+fetchStdSrc :: Options -> IO ()
+fetchStdSrc opts = withSocketsDo $ runResourceT $ do
+    liftIO $ createDirectoryIfMissing True $ dropFileName . optStrStdFile $ opts
+    manager <- liftIO $ newManager def
+    std' <- _fromEither =<< _fetchStdSrc opts manager (fromJust . optCycleName $ opts)
+    liftIO $ writeFile (optStrStdFile opts) $ GP.pretty std'
+    return ()
 
 fetchStrTestSrc :: Query_ Schedule StrTestSrc
 fetchStrTestSrc opts man sc = do
@@ -106,8 +119,18 @@ fetchStrTestSrc opts man sc = do
         chkTpl (i,r) = stepInfoId i == stepResInfoId r
     return $ Right StrTestSrc{strIssue = issue, strResult = sc, strSteps = steps}
 
-fetchStrSrc :: Query_ String StrSrc
-fetchStrSrc opts man cn = do
+_fetchStrSrc :: Query_ String StrSrc
+_fetchStrSrc opts man cn = do
     cid <- _fromEither =<< fetchCycleIdFromName opts man cn 
     scs <- _fromEither =<< fetchCycleSchedules opts man cid
     Right . StrSrc <$> forM scs (_fromEither <=< fetchStrTestSrc opts man)
+
+fetchStrSrc :: Options -> IO ()
+fetchStrSrc opts = withSocketsDo $ runResourceT $ do
+    liftIO $ print opts
+    liftIO $ createDirectoryIfMissing True $ dropFileName . optStrStdFile $ opts
+    manager <- liftIO $ newManager def
+    let cn = (fromJust . optCycleName $ trace "blah" opts)
+    str' <- _fromEither =<< _fetchStrSrc opts manager (trace ("cn = " ++ show cn) cn)
+    liftIO $ writeFile (optStrStdFile opts) $ GP.pretty str' 
+    return ()
