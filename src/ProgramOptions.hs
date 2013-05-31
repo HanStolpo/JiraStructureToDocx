@@ -6,6 +6,8 @@ module ProgramOptions   ( Operation(..)
                         , Options(..)
                         , optionsDefault
                         , processCmdArgs
+                        , validatePwd
+                        , validateUrs
                         ) where
  
 import System.Console.CmdArgs.Implicit
