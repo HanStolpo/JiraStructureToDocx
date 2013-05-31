@@ -3,6 +3,8 @@
 
 module StdStrFetch  (fetchStdSrc
                     ,fetchStrSrc
+                    ,fetchCycleIdFromName
+                    ,fetchCycleSchedules
                     ) where
 import GHC.Exts
 
@@ -25,7 +27,6 @@ import Control.Monad.IO.Class(liftIO)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath(dropFileName)
 import Text.PrettyPrint.GenericPretty as GP
-import Debug.Trace(trace)
 
 
 type Query_ a b = forall m. (MonadBaseControl IO m, MonadResource m) =>
@@ -130,7 +131,7 @@ fetchStrSrc opts = withSocketsDo $ runResourceT $ do
     liftIO $ print opts
     liftIO $ createDirectoryIfMissing True $ dropFileName . optStrStdFile $ opts
     manager <- liftIO $ newManager def
-    let cn = (fromJust . optCycleName $ trace "blah" opts)
-    str' <- _fromEither =<< _fetchStrSrc opts manager (trace ("cn = " ++ show cn) cn)
+    let cn = (fromJust . optCycleName $ opts)
+    str' <- _fromEither =<< _fetchStrSrc opts manager cn
     liftIO $ writeFile (optStrStdFile opts) $ GP.pretty str' 
     return ()
