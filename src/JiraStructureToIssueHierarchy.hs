@@ -7,7 +7,7 @@ import Network.HTTP.Conduit
 import Network.HTTP.Types.Status
 import Data.Conduit
 import qualified Data.ByteString.Lazy as L
-import qualified Data.ByteString.Lazy.Char8 as L8
+{-import qualified Data.ByteString.Lazy.Char8 as L8-}
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString as BW8
 import Network (withSocketsDo)
@@ -23,8 +23,8 @@ import Control.Applicative
 import qualified Data.Attoparsec.ByteString.Char8 as AP
 import Debug.Trace
 import Text.PrettyPrint.GenericPretty as GP
-import Text.JSON as JS
-import Text.JSON.Pretty as JS
+{-import Text.JSON as JS-}
+{-import Text.JSON.Pretty as JS-}
 import qualified Data.Map as M
 import Data.List
 import System.Directory
@@ -171,12 +171,12 @@ forestToHierarchyIssue :: (MonadBaseControl IO m, MonadResource m) =>
                           -> Int
                           -> m IssueHierarchy
 forestToHierarchyIssue manager usrn pwd baseUrl forest i = do
-    let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment"
+    let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment,issuelinks,status"
     let req =  applyBasicAuth  usrn pwd  (fromJust $ parseUrl url)
     res <- trace ("fetching " ++ show i) $ httpLbs req manager
     jsIssue <- decodeJsIssue $ responseBody res
     children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
-    return $ IssueHierarchy (jsiKey jsIssue) (jsiSummary jsIssue) (fromMaybe "" (jsiDescription jsIssue)) (jsiAttachments jsIssue) children
+    return $ IssueHierarchy jsIssue children
 
 forestToHierarchyNoIssue :: (MonadBaseControl IO m, MonadResource m) => 
                             Manager
@@ -187,7 +187,7 @@ forestToHierarchyNoIssue :: (MonadBaseControl IO m, MonadResource m) =>
                             -> m IssueHierarchy
 forestToHierarchyNoIssue manager usrn pwd baseUrl forest = do
     children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
-    return $ IssueHierarchy "root" "" "" [] children
+    return $ IssueHierarchyRoot children
 
 makeChildren :: (MonadBaseControl IO m, MonadResource m) =>
                 Manager

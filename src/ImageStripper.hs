@@ -2,6 +2,7 @@
  {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric #-}
 module ImageStripper where
 import Data.Char
+import Control.Applicative
 import GHC.Generics
 import Text.PrettyPrint.GenericPretty as GP
 import IssueHierarchy
@@ -28,14 +29,13 @@ extractImages ih = M.fromList $ walk ih
     where
         -- Traverse the hierarchy
         walk :: IssueHierarchy -> [((String, String), Image)]
-        walk IssueHierarchy 
-                {   ihKey = k, 
-                    ihDescription = d, 
-                    ihAttachment = as, 
-                    ihChildren = cs
-                } 
-                | null cs  = extract k d as 
-                | otherwise = concat $ (extract  k d as : walk (head cs) : map walk (tail cs)) 
+        walk (IssueHierarchyRoot cs) = concat . map walk $ cs
+        walk IssueHierarchy {ihIssue = i, ihChildren = cs} 
+                | null cs  = extractFromIssue i 
+                | otherwise = concat $ (extractFromIssue i : map walk cs) 
+        -- Get image map for the issue
+        extractFromIssue (JsIssue{jsiKey = k, jsiDescription = Just d, jsiAttachments = as}) = extract k d as
+        extractFromIssue _ = [] -- doen't have an issue or doesn't have a description
         -- Get the list of images from the description
         extract :: String -> String -> [Attachment] -> [((String, String), Image)]
         extract k d as = map (toImg k as) $ imagesFromDescription $ d 
@@ -55,18 +55,12 @@ extractImages ih = M.fromList $ walk ih
 replaceImagesUri :: ImageMap -> IssueHierarchy -> IssueHierarchy
 replaceImagesUri im ih = walk ih
     where
-        walk ih'@IssueHierarchy
-            {
-                ihKey = k, 
-                ihDescription = d, 
-                ihChildren = cs
-            } 
-            = ih' {ihDescription = replaceImageLinks replacer d, ihChildren = map walk cs}
+        walk ih'@IssueHierarchyRoot{ihChildren = cs} = ih'{ihChildren = map walk cs}
+        walk ih'@IssueHierarchy{ihIssue = i, ihChildren = cs} = ih' {ihIssue = newIssue i , ihChildren = map walk cs}
             where
-                replacer iml@ImageLink {imgLink = img} = 
-                    case M.lookup (k,img) im of
-                        Just (Image {imgUrl = url}) -> iml {imgLink = url}
-                        Nothing -> iml
-
-replaceImages :: ImageMap -> IssueHierarchy -> IssueHierarchy
-replaceImages = undefined
+                newIssue i'@(JsIssue {jsiKey = k, jsiDescription = d}) = i'{jsiDescription = replaceImageLinks replacer <$> d}
+                    where
+                        replacer iml@ImageLink {imgLink = img} = 
+                            case M.lookup (k,img) im of
+                                Just (Image {imgUrl = url}) -> iml {imgLink = url}
+                                Nothing -> iml

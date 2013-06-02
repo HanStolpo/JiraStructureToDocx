@@ -26,7 +26,7 @@ import Test.HUnit
 import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.Framework.TH
-import Data.ByteString.Lazy.Char8 (ByteString)     -- only import string instances for overloaded strings
+import Data.ByteString.Lazy.Char8 (ByteString, unpack)     -- only import string instances for overloaded strings
 import Control.Applicative((<$>), (<*>), (<|>))
 
 jiraTypesTestGroup ::  Test.Framework.Test
@@ -111,7 +111,7 @@ instance AS.FromJSON JsIssue where
 
 decodeJsIssue :: Monad m => ByteString -> m JsIssue
 decodeJsIssue s = case AS.eitherDecode s of
-                        Left e -> fail $ "Error decoding JASON for issue : " ++ e 
+                        Left e -> fail $ "Error decoding JASON for issue : " ++ e ++ "\n" ++ (unpack s)
                         Right f -> return f
 
 decodeJsIssueResponse :: ByteString  -> Either String JsIssue

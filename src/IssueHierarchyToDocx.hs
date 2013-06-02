@@ -1,7 +1,8 @@
-{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables#-}
 
 module IssueHierarchyToDocx (genDoc) where
 
+import Data.Maybe
 import Control.Monad.Error
 import System.Directory
 import Text.Pandoc
@@ -11,6 +12,7 @@ import Text.Blaze.Renderer.String
 import System.FilePath
 -- Local imports
 import IssueHierarchy
+import JiraTypes
 import DescriptionParser
 import ProgramOptions
  
@@ -50,4 +52,10 @@ hierarchyToDoc = expndChild 1
                 hdr = Header l nullAttr [Str $ ihKey issue, Str ":", Space, Str $ ihSummary issue] :: Block
                 cnt = parseDescription l $ filter (/= '\r') $ ihDescription issue :: [Block]
                 rest = concatMap (expndChild (l+1)) $ ihChildren issue :: [Block]
+                ihKey (IssueHierarchyRoot _) = ""
+                ihKey h = jsiKey . ihIssue $ h
+                ihSummary (IssueHierarchyRoot _) = ""
+                ihSummary h = jsiSummary . ihIssue $ h
+                ihDescription (IssueHierarchyRoot _) = ""
+                ihDescription h = fromMaybe "" . jsiDescription . ihIssue $ h
 
