@@ -129,9 +129,16 @@ fetchStrTestSrc opts man sc = do
     stories <- forM storyIds (\i -> _fromEither =<< fetchTestIssueById opts man i)
     stepInfos <- _fromEither =<< fetchTestStepInfos opts man iid
     stepResults <- _fromEither =<< fetchTestStepResults opts man sid
-    let steps = filter chkTpl $ zip (sortWith stepInfoId stepInfos)(sortWith stepResInfoId stepResults)
-        chkTpl (i,r) = stepInfoId i == stepResInfoId r
-    return $ Right StrTestSrc{strIssue = issue, strStories = stories, strResult = sc, strSteps = steps}
+    {-let steps = filter chkTpl $ zip (sortWith stepInfoId stepInfos)(sortWith stepResInfoId stepResults)-}
+        {-chkTpl (i,r) = stepInfoId i == stepResInfoId r-}
+    let steps = gobble (sortWith stepInfoId stepInfos)(sortWith stepResInfoId stepResults)
+        gobble [] _ = []
+        gobble is [] = map defJoin is
+        gobble (i:is) (r:rs) 
+            | stepInfoId i == stepResInfoId r = (i,r) : gobble is rs
+            | otherwise = defJoin i : gobble is (r:rs)
+        defJoin i = (i, TestStepResult{stepResId = 0, stepResInfoId = stepInfoId i, stepResStatus = TestUnexecuted, stepResComment = ""})
+    return $ Right StrTestSrc{strIssue = issue, strStories = stories, strResult = sc, strSteps = sortWith (stepInfoOrdId . fst) steps}
 
 _fetchStrSrc :: Query_ String StrSrc
 _fetchStrSrc opts man cn = do

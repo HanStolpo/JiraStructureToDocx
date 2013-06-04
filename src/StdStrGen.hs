@@ -59,7 +59,7 @@ _statusToText  = _s
         _s TestFail = "Failed"
         _s TestWip  = "In Progress"
         _s TestBlocked = "Blocked"
-        _s TestUnexecuted = "Not Executed"
+        _s TestUnexecuted = "Unexecuted"
         _s NullTestStatus = fail "Should never be here"
 
 (<|) :: (b -> a) -> b -> a
@@ -106,19 +106,21 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc $ ts
                         offHdr = (h + 2) - minHdr
                         modHdr (Header i a l) = Header (offHdr + i) a l
                         modHdr a = a
-                stepTbl = simpleTable [para . text $ "Description"
+                stepTbl = simpleTable [para . text $ "#"
+                                      ,para . text $ "Description"
                                       ,para . text $ "Data"
                                       ,para . text $ "Expected"
                                       ,para . text $ "Status"
                                       ,para . text $ "Comment"] steps
                 steps :: [[Blocks]]
-                steps = map step ss
+                steps = map step (zip ss [1..])
                     where 
-                        step s = [para . text . stepInfoDesc . fst $ s
-                                 ,para . text . stepInfoData . fst $ s
-                                 ,para . text . stepInfoExpect . fst $ s
-                                 ,para . text . _statusToText . stepResStatus . snd $ s
-                                 ,para . text . stepResComment . snd $ s]
+                        step s = [para . text . show . snd $ s
+                                 ,para . text . stepInfoDesc . fst . fst $ s
+                                 ,para . text . stepInfoData . fst . fst $ s
+                                 ,para . text . stepInfoExpect . fst . fst $ s
+                                 ,para . text . _statusToText . stepResStatus . snd . fst $ s
+                                 ,para . text . stepResComment . snd . fst $ s]
 
 _strTestCaseSummary :: [StrTestSrc] -> Blocks
 _strTestCaseSummary ts = if null rs 
