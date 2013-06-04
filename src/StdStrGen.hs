@@ -9,11 +9,13 @@ import System.Directory
 import System.FilePath
 import Text.Pandoc
 import Text.Pandoc.Builder
+import Text.Pandoc.Generic
 import Text.Blaze.Renderer.String
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Codec.Binary.UTF8.Generic as BS8
 import Control.Monad
 import Data.Maybe
+import Data.List
 -- private imports
 import ProgramOptions
 import StrStdTypes
@@ -64,6 +66,7 @@ _strToDoc :: StrSrc -> [Block]
 _strToDoc StrSrc{..} = toList $ header 1 . text <| "Requirements Accepted" <>  _strRequirementsAccepted strTests 
                              <> header 1 . text <| "Test Case Summary" <> _strTestCaseSummary strTests 
                              <> header 1 . text <| "Test Cases" <> _strTestCases 2 strTests
+                             <> header 1 . text <| "Traceability" <> _strRequirementTraceability strTests
 
 _strRequirementsAccepted :: [StrTestSrc] -> Blocks
 _strRequirementsAccepted ts = if null rs 
@@ -80,15 +83,25 @@ _strTestCases :: Int -> [StrTestSrc] -> Blocks
 _strTestCases h ts = foldl (<>) (fromList []) . map toDoc $ ts
     where
         toDoc :: StrTestSrc -> Blocks
-        toDoc t = hdr <> stat <> desc <> cmnt <> stepTbl
+        toDoc t = hdr <> stat <> cmnt <> desc  <> stepTbl
             where
                 ti = strIssue t 
                 tr = strResult t
                 ss = strSteps t
                 hdr = header h $ text . jsiKey <| ti <> str " - " <> text . jsiSummary <| ti
                 stat = header (h+1) . text <| "Status" <> para . text . _statusToText . status <| tr
-                desc = fromList . parseDescription (h+1) . filter (/= '\r') . fromMaybe "" . jsiDescription <| ti
-                cmnt = para . text . comment $ tr
+                cmnt = header (h+1) . text <| "Comment" <> para . text. (\s-> if s =="" then "No comments." else s) . comment <| tr
+                desc = header (h+1) . text <| "Description" 
+                        <> fromList . normHdrs . parseDescription 0 . filter (/= '\r') . fromMaybe "" . jsiDescription <| ti
+                normHdrs :: [Block] -> [Block]
+                normHdrs bs = topDown modHdr bs 
+                    where
+                        minHdr = minimum . queryWith getHdr $ bs
+                        getHdr (Header i _ _) = [i]
+                        getHdr _ = []
+                        offHdr = (h + 2) - minHdr
+                        modHdr (Header i a l) = Header (offHdr + i) a l
+                        modHdr a = a
                 stepTbl = simpleTable [para . text $ "Description"
                                       ,para . text $ "Data"
                                       ,para . text $ "Expected"
@@ -114,3 +127,33 @@ _strTestCaseSummary ts = if null rs
         sum t = [para . text . jsiKey . strIssue $ t
                 ,para . text . jsiSummary . strIssue $ t
                 ,para . text . _statusToText . status . strResult $ t]
+
+_strRequirementTraceability :: [StrTestSrc] -> Blocks
+_strRequirementTraceability ts  = table (text "") [(AlignLeft, 0.5/2),(AlignLeft, 0.5/2),(AlignLeft, 0.5/2),(AlignLeft, 0.5/2)] 
+                                              [para . text $ "Requirement ID"
+                                              ,para . text $ "Requirement Summary"
+                                              ,para . text $ "Test ID"
+                                              ,para . text $ "Test Summary"] rs
+    where 
+        rs = map toR . collapse . sortBy pred . extract $ ts
+        -- order by storyKey
+        pred :: (String, String, String, String) -> (String, String, String, String) -> Ordering
+        pred (sortKeyL, _, _, _) (sortKeyR, _, _, _) = compare sortKeyL sortKeyR
+        -- remove duplicated
+        collapse [] = []
+        collapse (a:[]) = [a]
+        collapse (a1:a2:as) 
+            | a1 == a2      = a1 : collapse as
+            | otherwise     = a1 : collapse (a2:as)
+        -- turn it into rows
+        toR (storyKey, storySummary, testKey, testSummary) = [para . text $ storyKey
+                                                             ,para . text $ storySummary 
+                                                             ,para . text $ testKey 
+                                                             ,para . text $ testSummary 
+                                                             ]
+        -- ts to  (storyKey, storySummary, testKey, testSummary)
+        extract :: [StrTestSrc] -> [(String, String, String, String)] 
+        extract ts = concatMap ex ts
+            where 
+                ex StrTestSrc{..} = map (ex' strIssue) strStories
+                ex' ti si = (jsiKey si, jsiSummary si, jsiKey ti, jsiSummary ti)

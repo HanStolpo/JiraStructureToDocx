@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse#-}
--- RUN_GHC_COMMAND_ARGS = --fetch-str --url=http://srv1.za.5dt.com:8090 --cycle-name=Sprint\ 2\ Demonstrations --str-std-file=../Outputs/str.txt
+-- RUN_GHC_COMMAND_ARGS = --gen-doc-str --str-std-file=../Output/str.txt --document-file=../Output/Str.docx
 -- xUN_GHC_COMMAND_ARGS = --help
 
 import System.Exit(exitSuccess)
@@ -9,6 +9,7 @@ import JiraStructureToIssueHierarchy
 import IssueHierarchyToDocx
 import ProgramOptions
 import StdStrFetch
+import StdStrGen
  
 main :: IO Int
 main = do
@@ -19,7 +20,7 @@ main = do
         GenDocOnly -> putStrLn ("Generating document" ++ optsText) >> genDoc opts
         FetchStr -> putStrLn ("Fetching STR" ++ optsText)  >> fetchStrSrc opts
         FetchStd -> putStrLn ("Fetching STR" ++ optsText)  >> fetchStdSrc opts
-        GenDocStr -> fail "not implemented yet"
+        GenDocStr -> putStrLn ("Fetching STR" ++ optsText)  >> genStr opts
         GenDocStd -> fail "not implemented yet"
     exitSuccess
 
