@@ -43,7 +43,10 @@ parseDescription l ds =
         res = runParser prsDesc  defaultParseState {psLevel = l} "Desc" ds
 
 prsDesc :: MyParser [Block]
-prsDesc = prsBlocks1
+prsDesc = liftM (filter noNull) prsBlocks1
+    where
+        noNull Null = False
+        noNull _ = True
     
 -- trace' !msg !s !a  = trace ("\nt-" ++ msg ++ " -> " ++ (show s) ++ "\n") $! a 
 -- trace'' !msg !a  = trace' msg a a
@@ -306,10 +309,10 @@ prsTableRows = do
     prsBOL
     _ <- skipSpaces >> string "|"
     updateState (\ps -> ps {psIgnoreChars =  '|':(psIgnoreChars ps)}) 
-    r <- endBy1 prsTableContent $ string "|"
-    prsRestOfLine
+    cs <- many1 (prsInlsTillEol >>~ string "|")
     updateState (\ps -> let (_:is) = psIgnoreChars ps in ps {psIgnoreChars = is }) 
-    return r
+    optional( blankline )
+    return ( map ((:[]) . Para) $ cs )
     
     
 ---------------------------------------------------------------------------------------------
@@ -562,6 +565,10 @@ matchError ::  Show a => Either t a -> Bool
 matchError (Right a) = trace (show a) False
 matchError (Left _) = True
 
+(<|) :: (b -> a) -> b -> a
+infixl 8 <|
+f <| a = f a
+
 descriptionParserTests ::  Test
 descriptionParserTests = test
         [   "newline" ~: Right '\n'  ~=? testP newline "\n",
@@ -664,6 +671,57 @@ descriptionParserTests = test
             "imagesFromDescription 2" ~: [ImageLink {imgLink = "bla", imgAttrs = Nothing}, ImageLink {imgLink = "ble", imgAttrs = Nothing}] ~=? imagesFromDescription "gordon !bla! ramsy!ble!",
 
             "replaceImageLinks 1" ~: "gordon !Sally! ramsy" ~=? replaceImageLinks (\_->ImageLink {imgLink = "Sally", imgAttrs = Nothing}) "gordon !bla! ramsy",
+
+            "prsTbl" ~:
+                    Right (toList $ header 4 . text <| "Requirements" <> 
+                                        table (str "") [(AlignLeft, 0), (AlignLeft, 0)] 
+                                          [para . text <| "Requirement",  para . text <| "Description"] 
+                                          [
+                                          [para . text <| "LYNX-1008",  para . text <| "DVS Control"],
+                                          [para . text <| "LYNX-1009",  para . text <| "DVS Emulation"],
+                                          [para . text <| "LYNX-438",  para . text <| "DVS Tabular View Value s"],
+                                          [para . text <| "LYNX-473",  para . text <| "DVS Instructor Events and Degraded Performance"]
+                                          ] <>
+                                    header 4 . text <| "Test Inputs"  
+                           )
+                    ~=? testP prsDesc ("h4. Requirements\n"
+                                    ++ "||Requirement              ||Description||\n" 
+                                    ++ "|LYNX-1008|DVS Control|\n" 
+                                    ++ "|LYNX-1009|DVS Emulation|\n"
+                                    ++ "|LYNX-438|DVS Tabular View Value s|\n"
+                                    ++ "|LYNX-473|DVS Instructor Events and Degraded Performance|\n"
+                                    ++ "h4. Test Inputs"
+                                    ),
+
+            "heading with content" ~:
+                    Right (toList $ header 4 . text <| "Overview"
+                           <> para . text <| "This test verifies the Doppler Velocity Sensor simulation."
+                           <> header 4 . text <| "Requirements"
+                           <> table (str "") [(AlignLeft, 0), (AlignLeft, 0)]  
+                                          [para . text <| "Requirement",  para . text <| "Description"] 
+                                          [
+                                          [para . text <| "LYNX-1008",  para . text <| "DVS Control"],
+                                          [para . text <| "LYNX-1009",  para . text <| "DVS Emulation"],
+                                          [para . text <| "LYNX-438",  para . text <| "DVS Tabular View Value s"],
+                                          [para . text <| "LYNX-473",  para . text <| "DVS Instructor Events and Degraded Performance"]
+                                          ]
+                           <> header 4 . text <| "Test Inputs"
+                           <> orderedListWith (1, LowerAlpha, DefaultDelim) [para . text <| "ATSTest application"
+                                                                            ,para . text <| "Script : ATS\\Tests\\ATSTest\\SuperLynxTestScripts\\Sensors\\LoadSuperLynxDopplerVelocitySensor.lua"] 
+                           )
+                    ~=? testP prsDesc ("h4. Overview\n"
+                                    ++ "This test verifies the Doppler Velocity Sensor simulation.\n\n"
+                                    ++ "h4. Requirements\n"
+                                    ++ "||Requirement              ||Description||\n"
+                                    ++ "|LYNX-1008|DVS Control|\n"
+                                    ++ "|LYNX-1009|DVS Emulation|\n"
+                                    ++ "|LYNX-438|DVS Tabular View Value s|\n"
+                                    ++ "|LYNX-473|DVS Instructor Events and Degraded Performance|\n\n\n"
+                                    ++ "h4. Test Inputs\n"
+                                    ++ "# ATSTest application\n"
+                                    ++ "# Script : ATS\\Tests\\ATSTest\\SuperLynxTestScripts\\Sensors\\LoadSuperLynxDopplerVelocitySensor.lua"
+                                    ),
+                
 
             "dummy end" ~: True ~=? True
         ]

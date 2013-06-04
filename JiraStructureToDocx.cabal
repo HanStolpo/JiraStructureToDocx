@@ -16,7 +16,7 @@ executable JiraStructureToDocx
     Other-Modules:      DescriptionParser, ImageStripper, IssueHierarchy, ProgramOptions, IssueHierarchyToDocx, JiraStructureToIssueHierarchy, ZephyrJson, JiraTypes
     build-depends:      base, 
                         containers,
-                        http-conduit, 
+                        http-conduit == 1.9.4, 
                         http-types, 
                         json, 
                         aeson, 
