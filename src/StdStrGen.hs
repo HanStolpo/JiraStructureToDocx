@@ -9,18 +9,20 @@ import System.Directory
 import System.FilePath
 import Text.Pandoc
 import Text.Pandoc.Builder
-import Text.Pandoc.Generic
+{-import Text.Pandoc.Generic-}
 import Text.Blaze.Renderer.String
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Codec.Binary.UTF8.Generic as BS8
 import Control.Monad
 import Data.Maybe
 import Data.List
+import qualified Data.Set as S
 -- private imports
 import ProgramOptions
 import StrStdTypes
 import ZephyrJson
 import JiraTypes
+import IssueHierarchy
 import DescriptionParser
 
 
@@ -30,17 +32,19 @@ genStr opts = do
     createDirectoryIfMissing True $ dropFileName . optDocxFile $ opts
     putStrLn "Reading str source "
     strSrc :: StrSrc <- liftM read $ readFile (optStrStdFile opts)
+    putStrLn "Reading issue hierarchy"
+    hierarchy :: IssueHierarchy <- liftM read $ readFile (optHierarchyFile opts)
     putStrLn "Generating pandoc"
     cd <- getCurrentDirectory
     let bfn = dropExtension . optDocxFile $ opts
         -- _docOptions ::  FilePath -> WriterOptions
         docOptions = def {writerUserDataDir = Just cd}
         docMeta = Meta {docTitle = [], docAuthors = [], docDate = []}
-        pandoc = Pandoc docMeta . _strToDoc $ strSrc
+        pandoc = Pandoc docMeta (_strToDoc strSrc ++ _hierarchyExerpt hierarchy strSrc)
     putStrLn "Generating native"
     writeFile (bfn ++ "_Native.txt") $ writeNative docOptions pandoc
     putStrLn "Generating markdown"
-    BS.writeFile (bfn ++ "_MarkDown.txt") $ BS8.fromString $ writeMarkdown def pandoc
+    BS.writeFile (bfn ++ "_MarkDown.txt") $ BS8.fromString $ writeMarkdown docOptions pandoc
     putStrLn "Generating html"
     BS.writeFile (bfn ++ "_HTML.html") $ BS8.fromString (renderMarkup $ writeHtml docOptions pandoc)
     putStrLn "Generating docx"
@@ -123,8 +127,8 @@ _strTestCaseSummary ts = if null rs
                          <> simpleTable [para . text <| "Test ID", para . text <| "Summary", para . text <| "Status"] rs
     where
         rs :: [[Blocks]]
-        rs = filter (not . null) . map sum $ ts
-        sum t = [para . text . jsiKey . strIssue $ t
+        rs = filter (not . null) . map smry $ ts
+        smry t = [para . text . jsiKey . strIssue $ t
                 ,para . text . jsiSummary . strIssue $ t
                 ,para . text . _statusToText . status . strResult $ t]
 
@@ -135,10 +139,10 @@ _strRequirementTraceability ts  = table (text "") [(AlignLeft, 0.5/2),(AlignLeft
                                               ,para . text $ "Test ID"
                                               ,para . text $ "Test Summary"] rs
     where 
-        rs = map toR . collapse . sortBy pred . extract $ ts
+        rs = map toR . collapse . sortBy csk . extract $ ts
         -- order by storyKey
-        pred :: (String, String, String, String) -> (String, String, String, String) -> Ordering
-        pred (sortKeyL, _, _, _) (sortKeyR, _, _, _) = compare sortKeyL sortKeyR
+        csk :: (String, String, String, String) -> (String, String, String, String) -> Ordering
+        csk (sortKeyL, _, _, _) (sortKeyR, _, _, _) = compare sortKeyL sortKeyR
         -- remove duplicated
         collapse [] = []
         collapse (a:[]) = [a]
@@ -153,7 +157,37 @@ _strRequirementTraceability ts  = table (text "") [(AlignLeft, 0.5/2),(AlignLeft
                                                              ]
         -- ts to  (storyKey, storySummary, testKey, testSummary)
         extract :: [StrTestSrc] -> [(String, String, String, String)] 
-        extract ts = concatMap ex ts
+        extract ts' = concatMap ex ts'
             where 
                 ex StrTestSrc{..} = map (ex' strIssue) strStories
                 ex' ti si = (jsiKey si, jsiSummary si, jsiKey ti, jsiSummary ti)
+
+
+_hierarchyExerpt :: IssueHierarchy -> StrSrc -> [Block]
+_hierarchyExerpt is' str' = toList $ header 1 . text <| "Appendix A - SSS Excerpt" <>  expndChild 2  (filt is' str')
+    where
+        expndChild :: Int -> IssueHierarchy -> Blocks
+        expndChild l IssueHierarchyRoot {ihChildren = cs} = fromList . concatMap (toList . expndChild l) $ cs
+        expndChild l issue = hdr <> cnt <> rest 
+            where
+                hdr = header l (text . ihKey <| issue <> str " : " <> text . ihSummary <| issue) -- Header nullAttr [Str $ ihKey issue, Str ":", Space, Str $ ihSummary issue] :: Block
+                cnt = fromList . parseDescription l . filter (/= '\r') . ihDescription $ issue
+                rest = fromList . concatMap (toList . expndChild (l+1)) $ ihChildren issue
+                ihKey (IssueHierarchyRoot _) = ""
+                ihKey h = jsiKey . ihIssue $ h
+                ihSummary (IssueHierarchyRoot _) = ""
+                ihSummary h = jsiSummary . ihIssue $ h
+                ihDescription (IssueHierarchyRoot _) = ""
+                ihDescription h = fromMaybe "" . jsiDescription . ihIssue $ h
+
+        filt is strSrc = fromJust . reduce $ is
+            where
+                incSet = S.fromList . concatMap (map jsiKey . strStories) . strTests $ strSrc
+                reduce :: IssueHierarchy -> Maybe IssueHierarchy
+                reduce IssueHierarchy {ihIssue = i, ihChildren = cs}
+                    | S.member (jsiKey i) incSet = Just (IssueHierarchy i cs')
+                    | null cs' = Nothing
+                    | otherwise = Just (IssueHierarchy i cs')
+                    where cs' = filtCs cs 
+                reduce IssueHierarchyRoot {ihChildren = cs} = Just IssueHierarchyRoot{ihChildren = filtCs cs}
+                filtCs = map fromJust . filter isJust . map reduce

@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse#-}
--- RUN_GHC_COMMAND_ARGS = --gen-doc-str --str-std-file=../Output/str.txt --document-file=../Output/Str.docx
+-- RUN_GHC_COMMAND_ARGS = --gen-doc-str --str-std-file=../Output/str.txt --document-file=../Output/Str.docx --hierarchy-file=../Output/LynxSssIssueHierarchy.txt
 -- xUN_GHC_COMMAND_ARGS = --help
 
 import System.Exit(exitSuccess)
