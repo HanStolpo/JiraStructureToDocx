@@ -19,6 +19,7 @@ instance Out StdSrc
 
 class TestDesc a where
     tstIssue    :: a -> JsIssue
+    tstModifyIssue :: a -> JsIssue -> a
     tstStories  :: a -> [JsIssue]
 
 
@@ -34,7 +35,7 @@ instance Out StdTestSrc
 instance TestDesc StdTestSrc where
     tstIssue = stdIssue
     tstStories = stdStories
-
+    tstModifyIssue t i = t{stdIssue = i}
 
 
 
@@ -59,3 +60,4 @@ instance Out StrTestSrc
 instance TestDesc StrTestSrc where
     tstIssue = strIssue
     tstStories = strStories
+    tstModifyIssue t i = t{strIssue = i}

@@ -17,17 +17,19 @@ import Data.List
 import Control.Monad
 import Control.Monad.Trans.Resource
 import Control.Applicative
--- local files
-import ProgramOptions
-import JiraTypes
-import ZephyrJson
-import StrStdTypes
 import Network.Socket(withSocketsDo)
 import Control.Monad.IO.Class(liftIO)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath(dropFileName)
 import Text.PrettyPrint.GenericPretty as GP
 import Data.Char(toLower)
+-- local files
+import ProgramOptions
+import JiraTypes
+import ZephyrJson
+import StrStdTypes
+import ImageStripper
+import JiraStructureToIssueHierarchy
 
 
 type Query_ a b = forall m. (MonadBaseControl IO m, MonadResource m) =>
@@ -111,7 +113,11 @@ fetchStdSrc opts = withSocketsDo $ runResourceT $ do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optStrStdFile $ opts
     manager <- liftIO $ newManager def
     std' <- _fromEither =<< _fetchStdSrc opts manager (fromJust . optCycleName $ opts)
-    liftIO $ writeFile (optStrStdFile opts) $ GP.pretty std'
+    liftIO $ putStrLn "Localising images"
+    let images = extractImagesFromTests (stdTests std')
+    imagesLoc <- localizeImages manager (pack . fromJust . optUsr $ opts) (pack . fromJust . optPwd $ opts) (fromJust . optBaseUrl $ opts) (dropFileName . optStrStdFile $ opts) images
+    let ts = replaceImagesUriInTests imagesLoc (stdTests std')
+    liftIO $ writeFile (optStrStdFile opts) $ GP.pretty std'{stdTests = ts}
     return ()
 
 _getTestsIssueIds :: JsIssue -> [Int]
@@ -150,10 +156,13 @@ _fetchStrSrc opts man cn = do
 
 fetchStrSrc :: Options -> IO ()
 fetchStrSrc opts = withSocketsDo $ runResourceT $ do
-    liftIO $ print opts
     liftIO $ createDirectoryIfMissing True $ dropFileName . optStrStdFile $ opts
     manager <- liftIO $ newManager def
     let cn = (fromJust . optCycleName $ opts)
     str' <- _fromEither =<< _fetchStrSrc opts manager cn
-    liftIO $ writeFile (optStrStdFile opts) $ GP.pretty str' 
+    liftIO $ putStrLn "Localising images"
+    let images = extractImagesFromTests (strTests str')
+    imagesLoc <- localizeImages manager (pack . fromJust . optUsr $ opts) (pack . fromJust . optPwd $ opts) (fromJust . optBaseUrl $ opts) (dropFileName . optStrStdFile $ opts) images
+    let ts = replaceImagesUriInTests imagesLoc (strTests str')
+    liftIO $ writeFile (optStrStdFile opts) $ GP.pretty str'{strTests = ts}
     return ()

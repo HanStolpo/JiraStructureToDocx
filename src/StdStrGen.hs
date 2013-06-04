@@ -68,7 +68,7 @@ infixl 8 <|
 f <| a = f a
 
 _strToDoc :: StrSrc -> IssueHierarchy -> [Block]
-_strToDoc StrSrc{..} hierarchy = toList $ header 1 . text <| "Requirements Accepted" <>  _strRequirementsAccepted strTests 
+_strToDoc StrSrc{..} hierarchy = toList $   _strRequirementsAccepted strTests 
                              <> header 1 . text <| "Test Result Summary" <> _strTestCaseSummary strTests 
                              <> header 1 . text <| "Tests" <> _strTestCases 2 strTests
                              <> header 1 . text <| "Traceability" <> _strRequirementTraceability strTests
@@ -76,8 +76,8 @@ _strToDoc StrSrc{..} hierarchy = toList $ header 1 . text <| "Requirements Accep
 
 _strRequirementsAccepted :: [StrTestSrc] -> Blocks
 _strRequirementsAccepted ts = if null rs 
-        then para . text <| "No issues have been accepted as implemented as part of this test cycle." 
-        else para . text <| "The following requirements have been accepted as implemented:" <> simpleTable [para . text <| "Requirement ID", para . text <| "Test ID"] rs
+        then fromList []
+        else header 1 . text <| "Requirements Accepted" <> para . text <| "The following requirements have been accepted as implemented:" <> simpleTable [para . text <| "Requirement ID", para . text <| "Test ID"] rs
     where
         rs :: [[Blocks]]
         rs = filter (not . null) . concatMap closedStories $ ts

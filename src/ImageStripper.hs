@@ -10,6 +10,7 @@ import DescriptionParser
 import qualified Data.Map as M
 import Data.List
 import JiraTypes
+import StrStdTypes
 
 -----------------------------------------------------------------------------
 --
@@ -64,3 +65,36 @@ replaceImagesUri im ih = walk ih
                             case M.lookup (k,img) im of
                                 Just (Image {imgUrl = url}) -> iml {imgLink = url}
                                 Nothing -> iml
+
+extractImagesFromTests :: TestDesc a => [a] -> ImageMap
+extractImagesFromTests ts = M.fromList . concatMap (extractFromIssue . tstIssue) $ ts
+    where
+        -- Get image map for the issue
+        extractFromIssue (JsIssue{jsiKey = k, jsiDescription = Just d, jsiAttachments = as}) = extract k d as
+        extractFromIssue _ = [] -- doen't have an issue or doesn't have a description
+        -- Get the list of images from the description
+        extract :: String -> String -> [Attachment] -> [((String, String), Image)]
+        extract k d as = map (toImg k as) $ imagesFromDescription $ d 
+        -- Convert an ImageLink to an ImageMap entry
+        toImg k as ImageLink {imgLink = img} = ((k,img), makeImage img )
+            where
+                -- If the image link starts with http its a full uri
+                makeImage img' | isPrefixOf "http" img' = Image img' img' Nothing
+                -- Otherwise see if it is in the list of attachments
+                makeImage img' = let imgL = map toLower img' in
+                    case find ((imgL ==) . ((map toLower) . attFileName)) as of
+                        Just a -> Image img' (attUri a) Nothing      -- It is an attachment return its URI
+                        Nothing -> Image img' img' Nothing           -- It is not so return as is
+
+
+
+replaceImagesUriInTests :: TestDesc a => ImageMap -> [a] -> [a]
+replaceImagesUriInTests im ts = map trans ts
+    where
+        trans t = tstModifyIssue t . newIssue . tstIssue $ t
+        newIssue i'@(JsIssue {jsiKey = k, jsiDescription = d}) = i'{jsiDescription = replaceImageLinks replacer <$> d}
+            where
+                replacer iml@ImageLink {imgLink = img} = 
+                    case M.lookup (k,img) im of
+                        Just (Image {imgUrl = url}) -> iml {imgLink = url}
+                        Nothing -> iml
