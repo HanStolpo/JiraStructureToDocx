@@ -12,6 +12,7 @@
   #-}
 module JiraTypes   ( Attachment(..)
                     , JsIssue(..)
+                    , IssueLink(..)
                     , decodeJsIssue
                     , decodeJsIssueResponse
                     , jiraTypesTestGroup
