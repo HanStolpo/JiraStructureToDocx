@@ -41,6 +41,7 @@ instance Out StrSrc
 data StrTestSrc = StrTestSrc 
         {
             strIssue    :: JsIssue,
+            strStories  :: [JsIssue],
             strResult   :: Schedule,
             strSteps    :: [(TestStepInfo, TestStepResult)]
         } deriving (Show, Read, Generic)

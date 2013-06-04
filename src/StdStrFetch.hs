@@ -27,6 +27,7 @@ import Control.Monad.IO.Class(liftIO)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath(dropFileName)
 import Text.PrettyPrint.GenericPretty as GP
+import Data.Char(toLower)
 
 
 type Query_ a b = forall m. (MonadBaseControl IO m, MonadResource m) =>
@@ -82,7 +83,9 @@ fetchTestStepResults opts man sid = do
     decodeTestStepResultsResponse . responseBody <$> httpLbs req man
 
 fetchTestIssueById :: Query_ Int JsIssue
-fetchTestIssueById opts man iid = do
+fetchTestIssueById opts man' iid = do
+    -- repeated use of same connection is resulting the following bug (InvalidStatusLine "" when reusing a connection #117) in HTTP Conduit
+    man <- liftIO $ newManager def 
     let url =  "/rest/api/latest/issue/" ++ show iid
         req = _makeReq opts url
     decodeJsIssueResponse . responseBody <$> httpLbs req man
@@ -109,16 +112,26 @@ fetchStdSrc opts = withSocketsDo $ runResourceT $ do
     liftIO $ writeFile (optStrStdFile opts) $ GP.pretty std'
     return ()
 
+_getTestsIssueIds :: JsIssue -> [Int]
+_getTestsIssueIds JsIssue{jsiIssueLinks = ls} = map getId . filter onlyTest $ ls
+    where
+        getId (Outward _ i _) = i
+        getId (Inward _ i _) = i
+        onlyTest (Outward d _ _) = ("tests" == ) . map toLower $ d
+        onlyTest (Inward d _ _) = ("tests" == ) . map toLower $ d
+
 fetchStrTestSrc :: Query_ Schedule StrTestSrc
 fetchStrTestSrc opts man sc = do
     let iid = issueId sc
         sid = scheduleId sc
     issue <- _fromEither =<< fetchTestIssueById opts man iid
+    let storyIds = _getTestsIssueIds issue
+    stories <- forM storyIds (\i -> _fromEither =<< fetchTestIssueById opts man i)
     stepInfos <- _fromEither =<< fetchTestStepInfos opts man iid
     stepResults <- _fromEither =<< fetchTestStepResults opts man sid
     let steps = filter chkTpl $ zip (sortWith stepInfoId stepInfos)(sortWith stepResInfoId stepResults)
         chkTpl (i,r) = stepInfoId i == stepResInfoId r
-    return $ Right StrTestSrc{strIssue = issue, strResult = sc, strSteps = steps}
+    return $ Right StrTestSrc{strIssue = issue, strStories = stories, strResult = sc, strSteps = steps}
 
 _fetchStrSrc :: Query_ String StrSrc
 _fetchStrSrc opts man cn = do
