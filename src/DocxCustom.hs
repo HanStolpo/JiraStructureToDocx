@@ -29,7 +29,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 Conversion of 'Pandoc' documents to docx.
 -}
-module Text.Pandoc.Writers.DocxCustom ( writeDocxCustom ) where -- module Text.Pandoc.Writers.Docx ( writeDocx ) where
+module DocxCustom ( writeDocxCustom ) where -- module Text.Pandoc.Writers.Docx ( writeDocx ) where
 import Data.List ( intercalate, groupBy )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -39,11 +39,11 @@ import Codec.Archive.Zip
 import Data.Time.Clock.POSIX
 import Text.Pandoc.Definition
 import Text.Pandoc.Generic
-import Text.Pandoc.ImageSize
+import ImageSize
 import Text.Pandoc.Shared hiding (Element)
 import Text.Pandoc.Options
 import Text.Pandoc.Readers.TeXMath
-import Text.Pandoc.Highlighting ( highlight )
+import Highlighting ( highlight )
 import Text.Highlighting.Kate.Types ()
 import Text.XML.Light
 import Text.TeXMath
@@ -54,7 +54,7 @@ import System.Random (randomRIO)
 import Text.Printf (printf)
 import qualified Control.Exception as E
 import System.FilePath (takeExtension)
-import Text.Pandoc.MIME (getMimeType)
+import MIME (getMimeType)
 
 data WriterState = WriterState{
          stTextProperties :: [Element]
@@ -101,10 +101,10 @@ toLazy :: B.ByteString -> BL.ByteString
 toLazy = BL.fromChunks . (:[])
 
 -- | Produce an Docx file from a Pandoc document.
-writeDocx :: WriterOptions  -- ^ Writer options
+writeDocxCustom :: WriterOptions  -- ^ Writer options
           -> Pandoc         -- ^ Document to convert
           -> IO BL.ByteString
-writeDocx opts doc@(Pandoc (Meta tit auths date) _) = do
+writeDocxCustom opts doc@(Pandoc (Meta tit auths date) _) = do
   let datadir = writerUserDataDir opts
   refArchive <- liftM (toArchive . toLazy) $
        case writerReferenceDocx opts of
