@@ -17,15 +17,23 @@ newtype StdSrc = StdSrc
 
 instance Out StdSrc
 
+class TestDesc a where
+    tstIssue    :: a -> JsIssue
+    tstStories  :: a -> [JsIssue]
+
 
 data StdTestSrc = StdTestSrc 
         {
             stdIssue :: JsIssue,
+            stdStories  :: [JsIssue],
             stdSteps :: [TestStepInfo]
         } deriving (Show, Read, Generic)
 
 instance Out StdTestSrc
 
+instance TestDesc StdTestSrc where
+    tstIssue = stdIssue
+    tstStories = stdStories
 
 
 
@@ -47,3 +55,7 @@ data StrTestSrc = StrTestSrc
         } deriving (Show, Read, Generic)
 
 instance Out StrTestSrc
+
+instance TestDesc StrTestSrc where
+    tstIssue = strIssue
+    tstStories = strStories

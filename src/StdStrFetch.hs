@@ -95,8 +95,10 @@ fetchStdTestSrc :: Query_ Schedule StdTestSrc
 fetchStdTestSrc opts man sc = do
     let iid = issueId sc
     issue <- _fromEither =<< fetchTestIssueById opts man iid
+    let storyIds = _getTestsIssueIds issue
+    stories <- forM storyIds (\i -> _fromEither =<< fetchTestIssueById opts man i)
     steps <- _fromEither =<< fetchTestStepInfos opts man iid
-    return $ Right StdTestSrc{stdIssue = issue, stdSteps = steps}
+    return $ Right StdTestSrc{stdIssue = issue, stdStories = stories, stdSteps = steps}
 
 _fetchStdSrc :: Query_ String StdSrc
 _fetchStdSrc opts man cn = do

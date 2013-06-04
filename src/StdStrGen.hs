@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables, RecordWildCards #-}
 
 module StdStrGen    ( genStr
+                    , genStd
                     )
                     where
 
@@ -40,7 +41,7 @@ genStr opts = do
         -- _docOptions ::  FilePath -> WriterOptions
         docOptions = def {writerUserDataDir = Just cd}
         docMeta = Meta {docTitle = [], docAuthors = [], docDate = []}
-        pandoc = Pandoc docMeta (_strToDoc strSrc ++ _hierarchyExerpt hierarchy strSrc)
+        pandoc = Pandoc docMeta (_strToDoc strSrc hierarchy)
     putStrLn "Generating native"
     writeFile (bfn ++ "_Native.txt") $ writeNative docOptions pandoc
     putStrLn "Generating markdown"
@@ -66,11 +67,12 @@ _statusToText  = _s
 infixl 8 <|
 f <| a = f a
 
-_strToDoc :: StrSrc -> [Block]
-_strToDoc StrSrc{..} = toList $ header 1 . text <| "Requirements Accepted" <>  _strRequirementsAccepted strTests 
-                             <> header 1 . text <| "Test Case Summary" <> _strTestCaseSummary strTests 
-                             <> header 1 . text <| "Test Cases" <> _strTestCases 2 strTests
+_strToDoc :: StrSrc -> IssueHierarchy -> [Block]
+_strToDoc StrSrc{..} hierarchy = toList $ header 1 . text <| "Requirements Accepted" <>  _strRequirementsAccepted strTests 
+                             <> header 1 . text <| "Test Result Summary" <> _strTestCaseSummary strTests 
+                             <> header 1 . text <| "Tests" <> _strTestCases 2 strTests
                              <> header 1 . text <| "Traceability" <> _strRequirementTraceability strTests
+                             <> _hierarchyExerpt hierarchy strTests
 
 _strRequirementsAccepted :: [StrTestSrc] -> Blocks
 _strRequirementsAccepted ts = if null rs 
@@ -134,7 +136,7 @@ _strTestCaseSummary ts = if null rs
                 ,para . text . jsiSummary . strIssue $ t
                 ,para . text . _statusToText . status . strResult $ t]
 
-_strRequirementTraceability :: [StrTestSrc] -> Blocks
+_strRequirementTraceability :: TestDesc a => [a] -> Blocks
 _strRequirementTraceability ts  = table (text "") [(AlignLeft, 0.5/2),(AlignLeft, 0.5/2),(AlignLeft, 0.5/2),(AlignLeft, 0.5/2)] 
                                               [para . text $ "Requirement ID"
                                               ,para . text $ "Requirement Summary"
@@ -158,15 +160,15 @@ _strRequirementTraceability ts  = table (text "") [(AlignLeft, 0.5/2),(AlignLeft
                                                              ,para . text $ testSummary 
                                                              ]
         -- ts to  (storyKey, storySummary, testKey, testSummary)
-        extract :: [StrTestSrc] -> [(String, String, String, String)] 
+        extract :: TestDesc a => [a] -> [(String, String, String, String)] 
         extract ts' = concatMap ex ts'
             where 
-                ex StrTestSrc{..} = map (ex' strIssue) strStories
+                ex t = map (ex' (tstIssue t)) (tstStories t)
                 ex' ti si = (jsiKey si, jsiSummary si, jsiKey ti, jsiSummary ti)
 
 
-_hierarchyExerpt :: IssueHierarchy -> StrSrc -> [Block]
-_hierarchyExerpt is' str' = toList $ header 1 . text <| "Appendix A - SSS Excerpt" <>  expndChild 2  (filt is' str')
+_hierarchyExerpt :: TestDesc a => IssueHierarchy -> [a] -> Blocks
+_hierarchyExerpt is' tsts' = header 1 . text <| "Appendix A - SSS Excerpt" <>  expndChild 2  (filt is' tsts')
     where
         expndChild :: Int -> IssueHierarchy -> Blocks
         expndChild l IssueHierarchyRoot {ihChildren = cs} = fromList . concatMap (toList . expndChild l) $ cs
@@ -182,9 +184,9 @@ _hierarchyExerpt is' str' = toList $ header 1 . text <| "Appendix A - SSS Excerp
                 ihDescription (IssueHierarchyRoot _) = ""
                 ihDescription h = fromMaybe "" . jsiDescription . ihIssue $ h
 
-        filt is strSrc = fromJust . reduce $ is
+        filt is tsts = fromJust . reduce $ is
             where
-                incSet = S.fromList . concatMap (map jsiKey . strStories) . strTests $ strSrc
+                incSet = S.fromList . concatMap (map jsiKey . tstStories) $ tsts
                 reduce :: IssueHierarchy -> Maybe IssueHierarchy
                 reduce IssueHierarchy {ihIssue = i, ihChildren = cs}
                     | S.member (jsiKey i) incSet = Just (IssueHierarchy i cs')
@@ -193,3 +195,72 @@ _hierarchyExerpt is' str' = toList $ header 1 . text <| "Appendix A - SSS Excerp
                     where cs' = filtCs cs 
                 reduce IssueHierarchyRoot {ihChildren = cs} = Just IssueHierarchyRoot{ihChildren = filtCs cs}
                 filtCs = map fromJust . filter isJust . map reduce
+
+
+
+
+genStd :: Options -> IO ()
+genStd opts = do
+    createDirectoryIfMissing True $ dropFileName . optDocxFile $ opts
+    putStrLn "Reading std source "
+    stdSrc :: StdSrc <- liftM read $ readFile (optStrStdFile opts)
+    putStrLn "Reading issue hierarchy"
+    hierarchy :: IssueHierarchy <- liftM read $ readFile (optHierarchyFile opts)
+    putStrLn "Generating pandoc"
+    cd <- getCurrentDirectory
+    let bfn = dropExtension . optDocxFile $ opts
+        -- _docOptions ::  FilePath -> WriterOptions
+        docOptions = def {writerUserDataDir = Just cd}
+        docMeta = Meta {docTitle = [], docAuthors = [], docDate = []}
+        pandoc = Pandoc docMeta (_stdToDoc stdSrc hierarchy)
+    putStrLn "Generating native"
+    writeFile (bfn ++ "_Native.txt") $ writeNative docOptions pandoc
+    putStrLn "Generating markdown"
+    BS.writeFile (bfn ++ "_MarkDown.txt") $ BS8.fromString $ writeMarkdown docOptions pandoc
+    putStrLn "Generating html"
+    BS.writeFile (bfn ++ "_HTML.html") $ BS8.fromString (renderMarkup $ writeHtml docOptions pandoc)
+    putStrLn "Generating docx"
+    d <- writeDocx docOptions pandoc
+    BS.writeFile (optDocxFile opts) d 
+    return ()
+
+_stdToDoc :: StdSrc -> IssueHierarchy -> [Block]
+_stdToDoc StdSrc{..} hierarchy = toList $ header 1 . text <| "Tests" <> _stdTestCases 2 stdTests
+                             <> header 1 . text <| "Traceability" <> _strRequirementTraceability stdTests
+                             <> _hierarchyExerpt hierarchy stdTests 
+
+
+
+_stdTestCases :: Int -> [StdTestSrc] -> Blocks
+_stdTestCases h ts = foldl (<>) (fromList []) . map toDoc $ ts
+    where
+        toDoc :: StdTestSrc -> Blocks
+        toDoc t = hdr <> desc  <> stepTbl
+            where
+                ti = stdIssue t 
+                ss = stdSteps t
+                hdr = header h $ text . jsiKey <| ti <> str " - " <> text . jsiSummary <| ti
+                desc = header (h+1) . text <| "Description" 
+                        <> fromList . normHdrs . parseDescription 0 . filter (/= '\r') . fromMaybe "" . jsiDescription <| ti
+                normHdrs :: [Block] -> [Block]
+                normHdrs bs = topDown modHdr bs 
+                    where
+                        minHdr = minimum . queryWith getHdr $ bs
+                        getHdr (Header i _ _) = [i]
+                        getHdr _ = []
+                        offHdr = (h + 2) - minHdr
+                        modHdr (Header i a l) = Header (offHdr + i) a l
+                        modHdr a = a
+                stepTbl = simpleTable [para . text $ "#"
+                                      ,para . text $ "Description"
+                                      ,para . text $ "Data"
+                                      ,para . text $ "Expected"
+                                      ] steps
+                steps :: [[Blocks]]
+                steps = map step (zip ss [1..])
+                    where 
+                        step s = [para . text . show . snd $ s
+                                 ,para . text . stepInfoDesc . fst $ s
+                                 ,para . text . stepInfoData . fst $ s
+                                 ,para . text . stepInfoExpect . fst $ s
+                                 ]

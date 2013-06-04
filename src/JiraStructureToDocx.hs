@@ -20,8 +20,8 @@ main = do
         GenDocOnly -> putStrLn ("Generating document" ++ optsText) >> genDoc opts
         FetchStr -> putStrLn ("Fetching STR" ++ optsText)  >> fetchStrSrc opts
         FetchStd -> putStrLn ("Fetching STR" ++ optsText)  >> fetchStdSrc opts
-        GenDocStr -> putStrLn ("Fetching STR" ++ optsText)  >> genStr opts
-        GenDocStd -> fail "not implemented yet"
+        GenDocStr -> putStrLn ("Generating STR" ++ optsText)  >> genStr opts
+        GenDocStd -> putStrLn ("Generating STD" ++ optsText)  >> genStd opts
     exitSuccess
 
 
