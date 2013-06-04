@@ -25,6 +25,7 @@ import ZephyrJson
 import JiraTypes
 import IssueHierarchy
 import DescriptionParser
+import DocxCustom
 
 
 
@@ -49,7 +50,7 @@ genStr opts = do
     putStrLn "Generating html"
     BS.writeFile (bfn ++ "_HTML.html") $ BS8.fromString (renderMarkup $ writeHtml docOptions pandoc)
     putStrLn "Generating docx"
-    d <- writeDocx docOptions pandoc
+    d <- writeDocxCustom docOptions pandoc
     BS.writeFile (optDocxFile opts) d 
     return ()
 

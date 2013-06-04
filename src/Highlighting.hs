@@ -1,3 +1,4 @@
+-- Copied from pandoc so that the DocX writer may be hacked at for some custom mods
 {-
 Copyright (C) 2008 John MacFarlane <jgm@berkeley.edu>
 
