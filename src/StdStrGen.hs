@@ -27,7 +27,7 @@ import IssueHierarchy
 import DescriptionParser
 import DocxCustom
 
-
+import Debug.Trace
 
 genStr :: Options -> IO ()
 genStr opts = do
@@ -69,7 +69,8 @@ infixl 8 <|
 f <| a = f a
 
 _strToDoc :: StrSrc -> IssueHierarchy -> [Block]
-_strToDoc StrSrc{..} hierarchy = toList $   _strRequirementsAccepted strTests 
+_strToDoc StrSrc{..} hierarchy = toList $   
+                                header 1 . text <| "Requirements Accepted" <> _strRequirementsAccepted strTests 
                              <> header 1 . text <| "Test Result Summary" <> _strTestCaseSummary strTests 
                              <> header 1 . text <| "Tests" <> _strTestCases 2 strTests
                              <> header 1 . text <| "Traceability" <> _strRequirementTraceability strTests
@@ -77,8 +78,8 @@ _strToDoc StrSrc{..} hierarchy = toList $   _strRequirementsAccepted strTests
 
 _strRequirementsAccepted :: [StrTestSrc] -> Blocks
 _strRequirementsAccepted ts = if null rs 
-        then fromList []
-        else header 1 . text <| "Requirements Accepted" <> para . text <| "The following requirements have been accepted as implemented:" <> simpleTable [para . text <| "Requirement ID", para . text <| "Test ID"] rs
+        then para . text <| "No requirements were accepted as implemented." 
+        else  para . text <| "The following requirements have been verified and accepted as implemented:" <> simpleTable [para . text <| "Requirement ID", para . text <| "Test ID"] rs
     where
         rs :: [[Blocks]]
         rs = filter (not . null) . concatMap closedStories $ ts
@@ -87,7 +88,7 @@ _strRequirementsAccepted ts = if null rs
 
 
 _strTestCases :: Int -> [StrTestSrc] -> Blocks
-_strTestCases h ts = foldl (<>) (fromList []) . map toDoc $ ts
+_strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
     where
         toDoc :: StrTestSrc -> Blocks
         toDoc t = hdr <> stat <> cmnt <> desc  <> stepTbl
@@ -109,7 +110,8 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc $ ts
                         offHdr = (h + 2) - minHdr
                         modHdr (Header i a l) = Header (offHdr + i) a l
                         modHdr a = a
-                stepTbl = simpleTable [para . text $ "#"
+                stepTbl = header (h+1) . text <| "Steps" <>  
+                          simpleTable [para . text $ "#"
                                       ,para . text $ "Description"
                                       ,para . text $ "Data"
                                       ,para . text $ "Expected"
@@ -129,10 +131,10 @@ _strTestCaseSummary :: [StrTestSrc] -> Blocks
 _strTestCaseSummary ts = if null rs 
         then para . text <| "No tests !!!." 
         else para . text <| "The following table provides a summary of the test results." 
-                         <> simpleTable [para . text <| "Test ID", para . text <| "Summary", para . text <| "Status"] rs
+                         <> simpleTable [para . text <| "Test ID", para . text <| "Test Title", para . text <| "Status"] rs
     where
         rs :: [[Blocks]]
-        rs = filter (not . null) . map smry $ ts
+        rs = filter (not . null) . map smry . _orderTests $ ts
         smry t = [para . text . jsiKey . strIssue $ t
                 ,para . text . jsiSummary . strIssue $ t
                 ,para . text . _statusToText . status . strResult $ t]
@@ -140,14 +142,14 @@ _strTestCaseSummary ts = if null rs
 _strRequirementTraceability :: TestDesc a => [a] -> Blocks
 _strRequirementTraceability ts  = table (text "") [(AlignLeft, 0.5/2),(AlignLeft, 0.5/2),(AlignLeft, 0.5/2),(AlignLeft, 0.5/2)] 
                                               [para . text $ "Requirement ID"
-                                              ,para . text $ "Requirement Summary"
+                                              ,para . text $ "Requirement Title"
                                               ,para . text $ "Test ID"
-                                              ,para . text $ "Test Summary"] rs
+                                              ,para . text $ "Test Title"] rs
     where 
         rs = map toR . collapse . sortBy csk . extract $ ts
         -- order by storyKey
         csk :: (String, String, String, String) -> (String, String, String, String) -> Ordering
-        csk (sortKeyL, _, _, _) (sortKeyR, _, _, _) = compare sortKeyL sortKeyR
+        csk (sortKeyL, _, _, _) (sortKeyR, _, _, _) = compare (_extractIdFromKey sortKeyL) (_extractIdFromKey sortKeyR)
         -- remove duplicated
         collapse [] = []
         collapse (a:[]) = [a]
@@ -233,7 +235,7 @@ _stdToDoc StdSrc{..} hierarchy = toList $ header 1 . text <| "Tests" <> _stdTest
 
 
 _stdTestCases :: Int -> [StdTestSrc] -> Blocks
-_stdTestCases h ts = foldl (<>) (fromList []) . map toDoc $ ts
+_stdTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
     where
         toDoc :: StdTestSrc -> Blocks
         toDoc t = hdr <> desc  <> stepTbl
@@ -252,7 +254,8 @@ _stdTestCases h ts = foldl (<>) (fromList []) . map toDoc $ ts
                         offHdr = (h + 2) - minHdr
                         modHdr (Header i a l) = Header (offHdr + i) a l
                         modHdr a = a
-                stepTbl = simpleTable [para . text $ "#"
+                stepTbl = header (h+1) . text <| "Steps" <> 
+                          simpleTable [para . text $ "#"
                                       ,para . text $ "Description"
                                       ,para . text $ "Data"
                                       ,para . text $ "Expected"
@@ -265,3 +268,12 @@ _stdTestCases h ts = foldl (<>) (fromList []) . map toDoc $ ts
                                  ,para . text . stepInfoData . fst $ s
                                  ,para . text . stepInfoExpect . fst $ s
                                  ]
+
+
+_extractIdFromKey :: String -> Int
+_extractIdFromKey  = read . tail . dropWhile ('-'/=)  
+
+_orderTests :: TestDesc a => [a] -> [a]
+_orderTests  = sortBy cmp 
+    where 
+        cmp l r = compare (_extractIdFromKey . jsiKey . tstIssue $ l) (_extractIdFromKey . jsiKey . tstIssue $ r)
