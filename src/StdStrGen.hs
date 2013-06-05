@@ -79,12 +79,23 @@ _strToDoc StrSrc{..} hierarchy = toList $
 _strRequirementsAccepted :: [StrTestSrc] -> Blocks
 _strRequirementsAccepted ts = if null rs 
         then para . text <| "No requirements were accepted as implemented." 
-        else  para . text <| "The following requirements have been verified and accepted as implemented:" <> simpleTable [para . text <| "Requirement ID", para . text <| "Test ID"] rs
+        else  para . text <| "The following requirements have been verified and accepted as implemented:" <> simpleTable [para . text <| "Requirement ID"
+                                                                                                                         ,para . text <| "Requirement Title"
+                                                                                                                         ,para . text <| "Test ID"
+                                                                                                                         ,para . text <| "Test Title"
+                                                                                                                         ] rs
     where
         rs :: [[Blocks]]
-        rs = filter (not . null) . concatMap closedStories $ ts
-        closedStories :: StrTestSrc -> [[Blocks]]
-        closedStories t = map (flip (:) [para . text . jsiKey . strIssue $ t] . para . text . jsiKey) . filter ((==) "Closed" . jsiKey) . strStories $ t
+        rs = filter (not . null) . map snd . sortBy cmp . concatMap closedStories $ ts
+        closedStories :: StrTestSrc -> [(String, [Blocks])]
+        closedStories t = map cmb . filter ((==) "Closed" . jsiStatus) . strStories $ t
+            where 
+                cmb :: JsIssue -> (String, [Blocks])
+                cmb i = (jsiKey i, inf i ++ (inf . strIssue $ t))
+        inf :: JsIssue -> [Blocks]
+        inf i = [para . text . jsiKey $ i, para . text . jsiSummary $ i]
+        cmp :: (String, [Blocks]) -> (String, [Blocks]) -> Ordering
+        cmp l r = compare (_extractIdFromKey . fst $ l) (_extractIdFromKey . fst $ r)
 
 
 _strTestCases :: Int -> [StrTestSrc] -> Blocks
