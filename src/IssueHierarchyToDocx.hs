@@ -15,6 +15,7 @@ import IssueHierarchy
 import JiraTypes
 import DescriptionParser
 import ProgramOptions
+import DocxCustom
  
 genDoc :: Options -> IO ()
 genDoc opts = do
@@ -32,7 +33,7 @@ genDoc opts = do
     putStrLn "Generating html"
     BS.writeFile (bfn ++ "_HTML.html") $ BS8.fromString (renderMarkup $ writeHtml (docOptions cd) pandoc)
     putStrLn "Generating docx"
-    d <- writeDocx (docOptions cd) pandoc
+    d <- writeDocxCustom (docOptions cd) pandoc
     BS.writeFile (optDocxFile opts) d
     return ()
 

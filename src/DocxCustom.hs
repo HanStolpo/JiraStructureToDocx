@@ -460,16 +460,30 @@ blockToOpenXML opts (Table caption aligns widths headers rows) = do
   headers' <- mapM cellToOpenXML $ zip aligns headers
   rows' <- mapM (\cells -> mapM cellToOpenXML $ zip aligns cells)
            $ rows
+  {-let borderProps = mknode "w:tcPr" []-}
+                    {-[ mknode "w:tcBorders" []-}
+                      {-$ mknode "w:bottom" [("w:val","single")] ()-}
+                    {-, mknode "w:vAlign" [("w:val","bottom")] () ]-}
   let borderProps = mknode "w:tcPr" []
-                    [ mknode "w:tcBorders" []
-                      $ mknode "w:bottom" [("w:val","single")] ()
-                    , mknode "w:vAlign" [("w:val","bottom")] () ]
+                    [ mknode "w:shd" [("w:val", "clear"), ("w:color", "auto"), ("w:fill", "D9D9D9")] ()
+                    , mknode "w:vAlign" [("w:val","bottom")] () 
+                    ]
   let mkcell border contents = mknode "w:tc" []
                             $ [ borderProps | border ] ++
                             if null contents
                                then [mknode "w:p" [] ()]
                                else contents
-  let mkrow border cells = mknode "w:tr" [] $ map (mkcell border) cells
+  --let mkrow border cells = mknode "w:tr" [] $ map (mkcell border) cells
+  let mkrow border cells = mknode "w:tr" []
+        ([mknode "w:trPr" [] [ mknode "w:tblHeader" [] () ] | border] 
+        ++ [ mknode "w:rPr" [] 
+                [
+                    mknode "w:rFonts" [("w:ascii", "Arial"), ("w:hAnsi", "Arial")] (),
+                    mknode "w:b" [] (),
+                    mknode "w:sz" [("w:val", "20")] ()
+                ] 
+           | border]
+        ++ map (mkcell border) cells)
   let textwidth = 7920  -- 5.5 in in twips, 1/20 pt
   let mkgridcol w = mknode "w:gridCol"
                        [("w:w", show $ (floor (textwidth * w) :: Integer))] ()
@@ -477,8 +491,20 @@ blockToOpenXML opts (Table caption aligns widths headers rows) = do
     [ mknode "w:tbl" []
       ( mknode "w:tblPr" []
         ( [ mknode "w:tblStyle" [("w:val","TableNormal")] () ] ++
-          [ mknode "w:tblCaption" [("w:val", captionStr)] ()
-          | not (null caption) ] )
+          [ mknode "w:tblCaption" [("w:val", captionStr)] () | not (null caption) ] ++
+          [ mknode "w:tblBorders" [] 
+                [
+                    mknode "w:top"      [("w:val", "single"), ("w:sz", "4"), ("w:space", "0"), ("w:color", "auto")] (),
+                    mknode "w:left"     [("w:val", "single"), ("w:sz", "4"), ("w:space", "0"), ("w:color", "auto")] (),
+                    mknode "w:bottom"   [("w:val", "single"), ("w:sz", "4"), ("w:space", "0"), ("w:color", "auto")] (),
+                    mknode "w:right"    [("w:val", "single"), ("w:sz", "4"), ("w:space", "0"), ("w:color", "auto")] (),
+                    mknode "w:insideH"  [("w:val", "single"), ("w:sz", "4"), ("w:space", "0"), ("w:color", "auto")] (),
+                    mknode "w:insideV"  [("w:val", "single"), ("w:sz", "4"), ("w:space", "0"), ("w:color", "auto")] ()
+                ]
+          ] ++
+          [mknode "w:tblLook" [("w:val", "0420")] ()]
+        )
+      : mknode "w:trPr" [] [ mknode "w:cantSplit" [] () ]
       : mknode "w:tblGrid" []
         (if all (==0) widths
             then []
