@@ -39,6 +39,7 @@ data Options = Options  { optOperation      :: Operation
                         , optProjectId      :: Maybe Int
                         , optCycleName      :: Maybe String
                         , optStrStdFile     :: String
+                        , optQueryString    :: Maybe String
                         } deriving (Show, Data, Typeable, Generic)
 -- Make Options pretty printable
 instance Out Options
@@ -54,6 +55,7 @@ optionsDefault = Options { optOperation = FetchOnly
                          , optProjectId = Nothing
                          , optCycleName = Nothing
                          , optStrStdFile = "StrStd.txt"
+                         , optQueryString = Nothing
                          }
 
 options :: Options
@@ -73,6 +75,7 @@ options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= n
                   , optProjectId        = def  &= explicit &= name "projid"         &= help "the ID of the JIRA project"
                   , optCycleName        = def  &= explicit &= name "cycle-name"     &= help "the name of the Zephyr test cycle"
                   , optStrStdFile       = defS &= explicit &= name "str-std-file"   &= help "the name of the file contains or will contain the STR STD data" &= opt defS 
+                  , optQueryString      = def  &= explicit &= name "query"          &= help "optional jira query to filter document structure generation"
                   } &= program "JiraStructureToDocX"
             where
                 defH = optHierarchyFile optionsDefault

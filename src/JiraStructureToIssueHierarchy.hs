@@ -26,6 +26,7 @@ import Text.PrettyPrint.GenericPretty as GP
 {-import Text.JSON as JS-}
 {-import Text.JSON.Pretty as JS-}
 import qualified Data.Map as M
+import qualified Data.Set as S
 import Data.List
 import System.Directory
 import System.FilePath
@@ -34,6 +35,7 @@ import IssueHierarchy
 import ImageStripper
 import ProgramOptions
 import JiraTypes
+import Query
 
  
 fetchHierarchy :: Options -> IO ()
@@ -51,7 +53,10 @@ fetchHierarchy opts = withSocketsDo $ runResourceT $ do
     liftIO $ putStrLn "Decoding strucuture forest"
     forest <- decodeForest $ responseBody res
     liftIO $ putStrLn "Getting structure issues from jira"
-    hierarchy <- forestToHierarchy manager usrn pwd (baseUrl ++ "/rest/api/2/issue/") forest
+    hierarchy' <- forestToHierarchy manager usrn pwd (baseUrl ++ "/rest/api/2/issue/") forest
+    hierarchy <- case optQueryString opts of
+                    Nothing -> return hierarchy'
+                    Just _ -> _filterByQuery opts hierarchy'
     liftIO $ putStrLn "Localising images"
     let images = extractImages hierarchy
     imagesLoc <- localizeImages manager usrn pwd baseUrl (dropFileName . optHierarchyFile $ opts) images
@@ -242,6 +247,22 @@ getImage manager usrn pwd outDir img@(Image _ url _) = do
         cnd _ = True
     
 
+_filterByQuery ::(MonadIO m) => Options -> IssueHierarchy -> m IssueHierarchy
+_filterByQuery opts ih' = do
+    js <- liftIO $ query opts
+    return $ filt ih' js
+    where 
+        filt ih js = fromJust . reduce $ ih
+            where
+                incSet = S.fromList . map jsiKey $ js
+                reduce :: IssueHierarchy -> Maybe IssueHierarchy
+                reduce IssueHierarchy {ihIssue = i, ihChildren = cs}
+                    | S.member (jsiKey i) incSet = Just (IssueHierarchy i cs')
+                    | null cs' = Nothing
+                    | otherwise = Just (IssueHierarchy i cs')
+                    where cs' = filtCs cs 
+                reduce IssueHierarchyRoot {ihChildren = cs} = Just IssueHierarchyRoot{ihChildren = filtCs cs}
+                filtCs = map fromJust . filter isJust . map reduce
 
 {-txt = L8.pack "{\"expand\":\"renderedFields,names,schema,transitions,operations,editmeta,changelog\",\"id\":\"16253\",\"self\":\"http://srv1.za.5dt.com:8090/rest/api/2/issue/16253\",\"key\":\"LYNX-1055\",\"fields\":{\"summary\":\"EGI Gyro-Compass Mode\",\"description\":\"The EGI gyro-compass mode will be emulated as follows:\\r\\n# The EGI will enter gyro-compass alignment mode when commanded to do so (by NAV mode selection on the CDNU).\\r\\n# The EGI will remain in gyro-compass mode until motion is detected, or another mode is selected.\\r\\n\\r\\n\\r\\n\\r\\nThe EGI sensor will have a valid initialization position, when provided\\r\\n# manually, \\r\\n# or by valid GPS data\\r\\n\\r\\nWhen the EGI sensor is in gyro-compass alignment mode, it will\\r\\n# Provide align status \\r\\n## on reset will assume an align status of 1\\r\\n## after 2 seconds, it will assume an align status of 2\\r\\n## after 90 seconds, and has a valid initialization position, it will assume an align status of 3\\r\\n## after 240 seconds, it will assume an align status of 4\\r\\n# Reset align status when a different initialization position is provided.\\r\\n\\r\\n \",\"attachment\":[]}}"-}
 {-main :: IO ()-}
