@@ -347,6 +347,9 @@ prsInlsTillBlock1 :: MyParser [Inline]
 prsInlsTillBlock1 = prsInlsTillBlock >>= (\ils -> if null ils then fail "Expected at least one Inline" else return ils)
     
     
+prsAnyInFmt :: MyParser Inline
+prsAnyInFmt = choice $ map try  [prsEmph, prsStrong, prsCitation, prsDeleted, prsInserted
+                                ,prsSuperScript, prsSubScript, prsMonoSpaced, prsImage ]
 
 prsEnclosed :: MyParser start -> MyParser end -> MyParser content -> MyParser [content]
 prsEnclosed s e = enclosed (s >> notFollowedBy space) (lookAhead (try nonspaceChar) >> e)
@@ -447,7 +450,7 @@ prsInlFmt t fmt s = do
     modifyState (\st' -> st'{psInlineFmtStack = psInlineFmtStack st})
     case psInlineFmtStack stR of
         [] -> error "prsInlFmt - stact mis match"
-        ((InlFmtBussy _,_):_) -> error "prsInlFmt - stact mis match bussy"
+        ((InlFmtBussy _,_):_) -> fail  "prsInlFmt - stact mis match bussy"
         ((InlFmtFailed _,_):_) -> fail  ""
         ((InlFmtPassed _,_):_) -> return $ fmt inls
     where
@@ -530,9 +533,13 @@ prsWord :: MyParser Inline
 prsWord = do
     st <- getState
     setState $ st {psIgnoreChars = psIgnoreChars st ++ " \t\n\r"}
-    s <- many1 (try prsAnyChar)
+    s <- many1 (try p)
     modifyState (\st' -> st' {psIgnoreChars = psIgnoreChars st})
     return $ Str s
+    where 
+        p = do
+            prsNot (lookAhead . try $ prsAnyInFmt)
+            prsAnyChar
 
 prsEndl :: MyParser ()
 prsEndl = do
