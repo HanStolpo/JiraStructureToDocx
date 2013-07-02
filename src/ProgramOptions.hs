@@ -29,33 +29,35 @@ data Operation =  FetchOnly         --- Fetch the structure only and don't gener
 -- Make Operation pretty printable
 instance Out Operation
 
-data Options = Options  { optOperation      :: Operation
-                        , optUsr            :: Maybe String
-                        , optPwd            :: Maybe String
-                        , optBaseUrl        :: Maybe String
-                        , optStructureId    :: Maybe Int
-                        , optHierarchyFile  :: String
-                        , optDocxFile       :: String
-                        , optProjectId      :: Maybe Int
-                        , optCycleName      :: Maybe String
-                        , optStrStdFile     :: String
-                        , optQueryString    :: Maybe String
+data Options = Options  { optOperation          :: Operation
+                        , optUsr                :: Maybe String
+                        , optPwd                :: Maybe String
+                        , optBaseUrl            :: Maybe String
+                        , optStructureId        :: Maybe Int
+                        , optHierarchyFile      :: String
+                        , optDocxFile           :: String
+                        , optProjectId          :: Maybe Int
+                        , optCycleName          :: Maybe String
+                        , optStrStdFile         :: String
+                        , optQueryString        :: Maybe String
+                        , optStrStdIssuesFile   :: String
                         } deriving (Show, Data, Typeable, Generic)
 -- Make Options pretty printable
 instance Out Options
 
 optionsDefault :: Options
-optionsDefault = Options { optOperation = FetchOnly
-                         , optUsr = Nothing
-                         , optPwd = Nothing
-                         , optBaseUrl = Nothing
-                         , optStructureId = Nothing
-                         , optHierarchyFile = "StructureHierarchy.txt"
-                         , optDocxFile = "Structure.docx"
-                         , optProjectId = Nothing
-                         , optCycleName = Nothing
-                         , optStrStdFile = "StrStd.txt"
-                         , optQueryString = Nothing
+optionsDefault = Options { optOperation         = FetchOnly
+                         , optUsr               = Nothing
+                         , optPwd               = Nothing
+                         , optBaseUrl           = Nothing
+                         , optStructureId       = Nothing
+                         , optHierarchyFile     = "StructureHierarchy.txt"
+                         , optDocxFile          = "Structure.docx"
+                         , optProjectId         = Nothing
+                         , optCycleName         = Nothing
+                         , optStrStdFile        = "StrStd.txt"
+                         , optQueryString       = Nothing
+                         , optStrStdIssuesFile  = "StrStdIssues.txt"
                          }
 
 options :: Options
@@ -66,16 +68,17 @@ options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= n
                                                 , GenDocStr     &= explicit &= name "gen-doc-str"   &= help "Generate the STR given the data previously fetched"
                                                 , GenDocStd     &= explicit &= name "gen-doc-std"   &= help "Generate the STD given the data previously fetched"
                                                 ]
-                  , optUsr              = def  &= explicit &= name "usr"            &= help "user name"
-                  , optPwd              = def  &= explicit &= name "pwd"            &= help "password"
-                  , optBaseUrl          = def  &= explicit &= name "url"            &= help "the base URL to the JIRA instance"
-                  , optStructureId      = def  &= explicit &= name "sid"            &= help "the ID of the JIRA structure"
-                  , optHierarchyFile    = defH &= explicit &= name "hierarchy-file" &= help "the name of the hierarchy file that will be used" &= opt defH
-                  , optDocxFile         = defD &= explicit &= name "document-file"  &= help "the name of the document file that will be generated" &= opt defD
-                  , optProjectId        = def  &= explicit &= name "projid"         &= help "the ID of the JIRA project"
-                  , optCycleName        = def  &= explicit &= name "cycle-name"     &= help "the name of the Zephyr test cycle"
-                  , optStrStdFile       = defS &= explicit &= name "str-std-file"   &= help "the name of the file contains or will contain the STR STD data" &= opt defS 
-                  , optQueryString      = def  &= explicit &= name "query"          &= help "optional jira query to filter document structure generation"
+                  , optUsr              = def  &= explicit &= name "usr"                    &= help "user name"
+                  , optPwd              = def  &= explicit &= name "pwd"                    &= help "password"
+                  , optBaseUrl          = def  &= explicit &= name "url"                    &= help "the base URL to the JIRA instance"
+                  , optStructureId      = def  &= explicit &= name "sid"                    &= help "the ID of the JIRA structure"
+                  , optHierarchyFile    = defH &= explicit &= name "hierarchy-file"         &= help "the name of the hierarchy file that will be used" &= opt defH
+                  , optDocxFile         = defD &= explicit &= name "document-file"          &= help "the name of the document file that will be generated" &= opt defD
+                  , optProjectId        = def  &= explicit &= name "projid"                 &= help "the ID of the JIRA project"
+                  , optCycleName        = def  &= explicit &= name "cycle-name"             &= help "the name of the Zephyr test cycle"
+                  , optStrStdFile       = defS &= explicit &= name "str-std-file"           &= help "the name of the file contains or will contain the STR STD data" &= opt defS 
+                  , optQueryString      = def  &= explicit &= name "query"                  &= help "optional jira query to filter document structure generation"
+                  , optStrStdIssuesFile = defS &= explicit &= name "str-std-issues-file"    &= help "the set of issue linked to test that are being tested (generated when STD is generated used by STR)" &= opt defS 
                   } &= program "JiraStructureToDocX"
             where
                 defH = optHierarchyFile optionsDefault
@@ -104,34 +107,39 @@ validate opts@(Options {optOperation =  FetchOnly, ..}) = do
                 , optStructureId = Just $ fromJustNote "Structure Id is required" optStructureId
                 }
 
-validate opts@(Options {optOperation =  FetchStr}) = _validateFetchStrStd opts
+validate opts@(Options {optOperation =  FetchStr}) = _validateFetchStrStd True opts
 
-validate opts@(Options {optOperation =  FetchStd}) = _validateFetchStrStd opts
+validate opts@(Options {optOperation =  FetchStd}) = _validateFetchStrStd False opts
 
 validate opts@(Options {optOperation =  GenDocStr}) = _validateGenStrStd opts
 
 validate opts@(Options {optOperation =  GenDocStd}) = _validateGenStrStd opts
 
-_validateFetchStrStd :: Options -> IO Options
-_validateFetchStrStd opts@(Options{..}) = do
+_validateFetchStrStd :: Bool -> Options -> IO Options
+_validateFetchStrStd isStr opts@(Options{..}) = do
     url <- validateUrl optBaseUrl
     usr <- validateUrs optUsr
     pwd <- validatePwd optPwd
     p <- canonicalizePath optStrStdFile
+    p2 <- if isStr 
+                then validateFile optStrStdIssuesFile
+                else canonicalizePath optStrStdIssuesFile
     when (isNothing optCycleName) (fail "expecting cycle name")
     when (isNothing optProjectId) (fail "expecting a project Id")
     return opts { optBaseUrl = Just url
                 , optUsr = Just usr
                 , optPwd = Just pwd
                 , optStrStdFile = p
+                , optStrStdIssuesFile = p2
                 }
 
 _validateGenStrStd :: Options -> IO Options
 _validateGenStrStd opts@(Options{..}) = do
     pd <- canonicalizePath optDocxFile
     p <- validateFile optStrStdFile
+    p2 <- validateFile optStrStdIssuesFile
     ph <- validateFile optHierarchyFile
-    return opts {optStrStdFile = p, optDocxFile = pd, optHierarchyFile = ph}
+    return opts {optStrStdFile = p, optDocxFile = pd, optHierarchyFile = ph, optStrStdIssuesFile = p2}
 
 validateFile :: String -> IO String
 validateFile ph =  do

@@ -11,10 +11,10 @@
   , FlexibleInstances 
   #-}
 module JiraTypes   ( Attachment(..)
-                    , JsIssue(..)
+                    , Issue(..)
                     , IssueLink(..)
-                    , decodeJsIssue
-                    , decodeJsIssueResponse
+                    , decodeIssue
+                    , decodeIssueResponse
                     , jiraTypesTestGroup
                     ) where
 
@@ -29,10 +29,19 @@ import Test.Framework.Providers.HUnit
 import Test.Framework.TH
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)     -- only import string instances for overloaded strings
 import Control.Applicative((<$>), (<*>), (<|>))
+import Control.Monad
 
+import Utility
+
+------------------------------------------
+-- embed templated test case handling
 jiraTypesTestGroup ::  Test.Framework.Test
 jiraTypesTestGroup = $(testGroupGenerator)
 
+
+-------------------------------------------
+-- Attachments
+-------------------------------------------
 data Attachment = Attachment
     {
         attMimeType :: String,      -- The issue attachment mime type
@@ -42,58 +51,83 @@ data Attachment = Attachment
     deriving (Eq, Show, Read, Generic)
 -- Make attachment pretty printable
 instance Out Attachment
+instance AS.ToJSON Attachment 
+instance AS.FromJSON Attachment 
+
+-- proxy type to handle parsing jira response
+newtype JsAttachment = JsAttachment {jsiGetAttachment :: Attachment} deriving (Eq, Show, Read, Generic)
 -- Make the attachment JSON deserializable
-instance AS.FromJSON Attachment where
+instance AS.FromJSON JsAttachment where
     parseJSON (AS.Object v) = do
         mimeType <- v AS..: "mimeType"
         fileName <- v AS..: "filename"
         content <- v AS..: "content"
-        return Attachment {attMimeType = mimeType, attFileName = fileName, attUri = content}
+        return $ JsAttachment Attachment {attMimeType = mimeType, attFileName = fileName, attUri = content}
     parseJSON a = AS.typeMismatch "Expecting JSON object for Attachment" a
 
+
+
+---------------------------------
+-- Issue links
+----------------------------------
+
+data IssueLink = Outward String Int String | Inward String Int String -- Direction Description IssueId IssueKey
+                 deriving (Eq, Show, Read, Generic)
+instance Out IssueLink
+instance AS.ToJSON IssueLink 
+instance AS.FromJSON IssueLink 
+
+-- proxy type to handle parsing jira response
+newtype JsIssueLink = JsIssueLink {jsiGetIssueLink :: IssueLink} deriving (Eq, Show, Read, Generic)
+
+-- decode link type from jira response
 data IssueLinkType_ = IssueLinkType_{_inwardDesc :: String, _outwardDesc :: String}
 instance AS.FromJSON IssueLinkType_ where
     parseJSON (AS.Object v) = IssueLinkType_ <$> v AS..: "inward" <*> v AS..: "outward"
     parseJSON a = AS.typeMismatch "Expecting JSON object for IssueLinkType_" a
 
+-- decode link data from jira response
 data IssueLinkData_ = IssueLinkData_{_linkedIssueId :: Int, _linkedIssueKey :: String}
 instance AS.FromJSON IssueLinkData_ where
     parseJSON (AS.Object v) = IssueLinkData_ <$> fmap read (v AS..: "id") <*> v AS..: "key"
     parseJSON a = AS.typeMismatch "Expecting JSON object for IssueLinkData_" a
 
-data IssueLink = Outward String Int String | Inward String Int String -- Direction Description IssueId IssueKey
-                 deriving (Eq, Show, Read, Generic)
-instance Out IssueLink
-
+-- decode an inward link from jira response
 _makeInwardLink :: IssueLinkData_ -> IssueLinkType_ -> IssueLink
 _makeInwardLink d t = Inward (_inwardDesc t) (_linkedIssueId d) (_linkedIssueKey d)
 
+-- decode an outward link from jira response
 _makeOutwardLink :: IssueLinkData_ -> IssueLinkType_ -> IssueLink
 _makeOutwardLink d t = Outward (_outwardDesc t) (_linkedIssueId d) (_linkedIssueKey d)
 
-instance AS.FromJSON IssueLink where
-    parseJSON (AS.Object v) = (_makeInwardLink <$> v AS..: "inwardIssue" <*> v AS..: "type") 
+-- decode jira response for issue link as either an inward or an outward link
+instance AS.FromJSON JsIssueLink where
+    parseJSON (AS.Object v) = JsIssueLink <$> (_makeInwardLink <$> v AS..: "inwardIssue" <*> v AS..: "type") 
                             <|> 
-                             (_makeOutwardLink <$> v AS..: "outwardIssue" <*> v AS..: "type")
-                             
+                             JsIssueLink <$> (_makeOutwardLink <$> v AS..: "outwardIssue" <*> v AS..: "type")
     parseJSON a = AS.typeMismatch "Expecting JSON object for  IssueLink" a
         
 
 ---------------------------------------------------------------------------
 -- Class to represent the JASON of an issue
 
-data JsIssue = JsIssue
+data Issue = Issue
     {
-        jsiId  :: Int,                  -- The issue identifier
-        jsiKey :: String,               -- The issue key
-        jsiSummary :: String,           -- The summary field 
-        jsiDescription :: Maybe String, -- The optional description field
-        jsiStatus :: String,
-        jsiAttachments :: [Attachment], -- The list of optional attachments
-        jsiIssueLinks :: [IssueLink]
+        issueId  :: Int,                  -- The issue identifier
+        issueKey :: String,               -- The issue key
+        issueSummary :: String,           -- The summary field 
+        issueDescription :: Maybe String, -- The optional description field
+        issueStatus :: String,
+        issueAttachments :: [Attachment], -- The list of optional attachments
+        issueLinks :: [IssueLink]
     } 
     deriving (Eq, Show, Read, Generic)
-instance Out JsIssue
+instance Out Issue
+instance AS.ToJSON Issue 
+instance AS.FromJSON Issue 
+
+-- proxy type for decoding jira response
+newtype JsIssue = JsIssue {jsiGetIssue :: Issue} deriving (Eq, Show, Read, Generic)
 
 -- Specify JSON parser for JsIssue 
 instance AS.FromJSON JsIssue where
@@ -107,23 +141,29 @@ instance AS.FromJSON JsIssue where
         status <- statusObj AS..: "name"
         attachments <- fields AS..:? "attachment" AS..!= []
         issueLinks <- fields AS..:? "issuelinks" AS..!= []
-        return $ JsIssue ident key summary description status attachments issueLinks
+        return $ JsIssue (Issue ident key summary description status (map jsiGetAttachment attachments) (map jsiGetIssueLink issueLinks))
     parseJSON a = AS.typeMismatch "Expecting JSON object for JsIssue" a
+
+decodeIssue :: Monad m => ByteString -> m Issue
+decodeIssue = return . jsiGetIssue <=< decodeJsIssue
 
 decodeJsIssue :: Monad m => ByteString -> m JsIssue
 decodeJsIssue s = case AS.eitherDecode s of
-                        Left e -> fail $ "Error decoding JASON for issue : " ++ e ++ "\n" ++ (unpack s)
+                        Left e -> fail $ "Error decoding JASON for issue : " ++ e ++ "\n" ++ unpack s
                         Right f -> return f
+
+decodeIssueResponse :: ByteString  -> Either String Issue
+decodeIssueResponse = fmap jsiGetIssue . decodeJsIssue
 
 decodeJsIssueResponse :: ByteString  -> Either String JsIssue
 decodeJsIssueResponse = AS.eitherDecode 
 
-case_decodeJsIssueResponse :: Assertion
-case_decodeJsIssueResponse = Right expected @=? decodeJsIssueResponse s
+case_decodeIssueResponse :: Assertion
+case_decodeIssueResponse = Right expected @=? decodeIssueResponse s
     where
-        expected = JsIssue 15846 "LYNX-853" "summaryBlah" (Just "descriptionBlah") "Resolved"
+        expected = Issue 15846 "LYNX-853" "summaryBlah" (Just "descriptionBlah") "Resolved"
                     [] 
-                    [(Inward "relates to" 15824 "LYNX-831"), (Outward "tests" 15498 "LYNX-619")]
+                    [Inward "relates to" 15824 "LYNX-831", Outward "tests" 15498 "LYNX-619"]
         s = [r|{"expand": "renderedFields,names,schema,transitions,operations,editmeta,changelog",
                 "id": "15846",
                 "self": "http://jira.server.com/rest/api/latest/issue/15846",
@@ -234,6 +274,60 @@ case_decodeJsIssueResponse = Right expected @=? decodeJsIssueResponse s
                             "timeoriginalestimate": null, "customfield_10801": null,
                             "aggregatetimespent": null}}
         |]
+
+
+
+case_serializeIssue :: Assertion
+case_serializeIssue = Just i @=? (AS.decode .  prettyJson . AS.encode $ i)
+    where 
+        i = Issue
+            {
+                issueId = 4,
+                issueKey = "issueKey",
+                issueSummary = "issueSummary",
+                issueDescription = Just "issueDescription",
+                issueStatus = "issueStatus",
+                issueAttachments = [Attachment {
+                                    attMimeType = "attMimeType",
+                                    attUri = "attUri",
+                                    attFileName = "attFileName"
+                                    }],
+                issueLinks = [Outward "Blah" 1 "Blah", Inward "Blahs" 2 "Blahs"]
+            }
+
+-- Note missing maybe is fine but empty strings are not
+case_deserializeIssue :: Assertion
+case_deserializeIssue = Just i @=? AS.decode s
+    where
+        i = Issue
+            {
+                issueId = 4,
+                issueKey = "issueKey",
+                issueSummary = "issueSummary",
+                issueDescription = Nothing, -- Just "issueDescription",
+                issueStatus = "issueStatus",
+                issueAttachments = [Attachment {
+                                    attMimeType = "attMimeType",
+                                    attUri = "attUri",
+                                    attFileName = "attFileName"
+                                    }],
+                issueLinks = [] -- [(Outward "Blah" 1 "Blah"), (Inward "Blahs" 2 "Blahs")]
+            }
+        s = [r|
+                {"issueAttachments":
+                [
+                    {"attUri":"attUri",
+                    "attFileName":"attFileName",
+                    "attMimeType":"attMimeType"
+                    }
+                ],
+                "issueId":4,
+                "issueKey":"issueKey",
+                "issueSummary":"issueSummary",
+                "issueStatus":"issueStatus",
+                "issueLinks":[],
+                }
+            |]
 -------------------------------------------------
 -- Debug main
 ------------------------------------------------

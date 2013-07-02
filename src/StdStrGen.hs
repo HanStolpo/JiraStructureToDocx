@@ -21,8 +21,8 @@ import qualified Data.Set as S
 -- private imports
 import ProgramOptions
 import StrStdTypes
-import ZephyrJson
-import JiraTypes
+import ZephyrJson as Z
+import JiraTypes as J
 import IssueHierarchy
 import DescriptionParser
 import DocxCustom
@@ -88,12 +88,12 @@ _strRequirementsAccepted ts = if null rs
         rs :: [[Blocks]]
         rs = filter (not . null) . map snd . sortBy cmp . concatMap closedStories $ ts
         closedStories :: StrTestSrc -> [(String, [Blocks])]
-        closedStories t = map cmb . filter ((==) "Closed" . jsiStatus) . strStories $ t
+        closedStories t = map cmb . filter ((==) "Closed" . issueStatus) . strStories $ t
             where 
-                cmb :: JsIssue -> (String, [Blocks])
-                cmb i = (jsiKey i, inf i ++ (inf . strIssue $ t))
-        inf :: JsIssue -> [Blocks]
-        inf i = [para . text . jsiKey $ i, para . text . jsiSummary $ i]
+                cmb :: Issue -> (String, [Blocks])
+                cmb i = (J.issueKey i, inf i ++ (inf . strIssue $ t))
+        inf :: Issue -> [Blocks]
+        inf i = [para . text . J.issueKey $ i, para . text . issueSummary $ i]
         cmp :: (String, [Blocks]) -> (String, [Blocks]) -> Ordering
         cmp l r = compare (_extractIdFromKey . fst $ l) (_extractIdFromKey . fst $ r)
 
@@ -107,11 +107,11 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                 ti = strIssue t 
                 tr = strResult t
                 ss = strSteps t
-                hdr = header h $ text . jsiKey <| ti <> str " - " <> text . jsiSummary <| ti
+                hdr = header h $ text . J.issueKey <| ti <> str " - " <> text . issueSummary <| ti
                 stat = header (h+1) . text <| "Status" <> para . text . _statusToText . status <| tr
                 cmnt = header (h+1) . text <| "Comment" <> para . text. (\s-> if s =="" then "No comments." else s) . comment <| tr
                 desc = header (h+1) . text <| "Description" 
-                        <> fromList . normHdrs . parseDescription 0 . filter (/= '\r') . fromMaybe "" . jsiDescription <| ti
+                        <> fromList . normHdrs . parseDescription 0 . filter (/= '\r') . fromMaybe "" . issueDescription <| ti
                 normHdrs :: [Block] -> [Block]
                 normHdrs bs = topDown modHdr bs 
                     where
@@ -146,8 +146,8 @@ _strTestCaseSummary ts = if null rs
     where
         rs :: [[Blocks]]
         rs = filter (not . null) . map smry . _orderTests $ ts
-        smry t = [para . text . jsiKey . strIssue $ t
-                ,para . text . jsiSummary . strIssue $ t
+        smry t = [para . text . J.issueKey . strIssue $ t
+                ,para . text . issueSummary . strIssue $ t
                 ,para . text . _statusToText . status . strResult $ t]
 
 _strRequirementTraceability :: TestDesc a => [a] -> Blocks
@@ -178,7 +178,7 @@ _strRequirementTraceability ts  = table (text "") [(AlignLeft, 0.5/2),(AlignLeft
         extract ts' = concatMap ex ts'
             where 
                 ex t = map (ex' (tstIssue t)) (tstStories t)
-                ex' ti si = (jsiKey si, jsiSummary si, jsiKey ti, jsiSummary ti)
+                ex' ti si = (J.issueKey si, issueSummary si, J.issueKey ti, issueSummary ti)
 
 
 _hierarchyExerpt :: TestDesc a => IssueHierarchy -> [a] -> Blocks
@@ -192,18 +192,18 @@ _hierarchyExerpt is' tsts' = header 1 . text <| "Appendix A - SSS Excerpt" <>  e
                 cnt = fromList . parseDescription l . filter (/= '\r') . ihDescription $ issue
                 rest = fromList . concatMap (toList . expndChild (l+1)) $ ihChildren issue
                 ihKey (IssueHierarchyRoot _) = ""
-                ihKey h = jsiKey . ihIssue $ h
+                ihKey h = J.issueKey . ihIssue $ h
                 ihSummary (IssueHierarchyRoot _) = ""
-                ihSummary h = jsiSummary . ihIssue $ h
+                ihSummary h = issueSummary . ihIssue $ h
                 ihDescription (IssueHierarchyRoot _) = ""
-                ihDescription h = fromMaybe "" . jsiDescription . ihIssue $ h
+                ihDescription h = fromMaybe "" . issueDescription . ihIssue $ h
 
         filt is tsts = fromJust . reduce $ is
             where
-                incSet = S.fromList . concatMap (map jsiKey . tstStories) $ tsts
+                incSet = S.fromList . concatMap (map J.issueKey . tstStories) $ tsts
                 reduce :: IssueHierarchy -> Maybe IssueHierarchy
                 reduce IssueHierarchy {ihIssue = i, ihChildren = cs}
-                    | S.member (jsiKey i) incSet = Just (IssueHierarchy i cs')
+                    | S.member (J.issueKey i) incSet = Just (IssueHierarchy i cs')
                     | null cs' = Nothing
                     | otherwise = Just (IssueHierarchy i cs')
                     where cs' = filtCs cs 
@@ -253,9 +253,9 @@ _stdTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
             where
                 ti = stdIssue t 
                 ss = stdSteps t
-                hdr = header h $ text . jsiKey <| ti <> str " - " <> text . jsiSummary <| ti
+                hdr = header h $ text . J.issueKey <| ti <> str " - " <> text . issueSummary <| ti
                 desc = header (h+1) . text <| "Description" 
-                        <> fromList . normHdrs . parseDescription 0 . filter (/= '\r') . fromMaybe "" . jsiDescription <| ti
+                        <> fromList . normHdrs . parseDescription 0 . filter (/= '\r') . fromMaybe "" . issueDescription <| ti
                 normHdrs :: [Block] -> [Block]
                 normHdrs bs = topDown modHdr bs 
                     where
@@ -287,4 +287,4 @@ _extractIdFromKey  = read . tail . dropWhile ('-'/=)
 _orderTests :: TestDesc a => [a] -> [a]
 _orderTests  = sortBy cmp 
     where 
-        cmp l r = compare (_extractIdFromKey . jsiKey . tstIssue $ l) (_extractIdFromKey . jsiKey . tstIssue $ r)
+        cmp l r = compare (_extractIdFromKey . J.issueKey . tstIssue $ l) (_extractIdFromKey . J.issueKey . tstIssue $ r)

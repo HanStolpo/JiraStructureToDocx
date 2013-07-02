@@ -52,7 +52,8 @@ executable JiraStructureToDocx
                         texmath,
                         xml,
                         time,
-                        zip-archive
+                        zip-archive,
+                        data-default
 
 
 Test-Suite test-parser
@@ -76,5 +77,6 @@ Test-Suite test-parser
                         bytestring,
                         blaze-markup,
                         utf8-string,
-                        pandoc-types
+                        pandoc-types,
+                        data-default
 

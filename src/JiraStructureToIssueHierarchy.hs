@@ -36,7 +36,7 @@ import ImageStripper
 import ProgramOptions
 import JiraTypes
 import Query
-
+import Utility
  
 fetchHierarchy :: Options -> IO ()
 fetchHierarchy opts = withSocketsDo $ runResourceT $ do
@@ -62,7 +62,7 @@ fetchHierarchy opts = withSocketsDo $ runResourceT $ do
     imagesLoc <- localizeImages manager usrn pwd baseUrl (dropFileName . optHierarchyFile $ opts) images
     let hierarchy' = replaceImagesUri imagesLoc hierarchy
     liftIO $ putStrLn "Writing out hierarchy file"
-    liftIO $ writeFile (optHierarchyFile opts) $ GP.pretty hierarchy'
+    liftIO $ L.writeFile (optHierarchyFile opts) . prettyJson . AS.encode $ hierarchy'
     return ()
 
 ---------------------------------------------------------------------------
@@ -179,7 +179,7 @@ forestToHierarchyIssue manager usrn pwd baseUrl forest i = do
     let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment,issuelinks,status"
     let req =  applyBasicAuth  usrn pwd  (fromJust $ parseUrl url)
     res <- trace ("fetching " ++ show i) $ httpLbs req manager
-    jsIssue <- decodeJsIssue $ responseBody res
+    jsIssue <- decodeIssue $ responseBody res
     children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
     return $ IssueHierarchy jsIssue children
 
@@ -254,10 +254,10 @@ _filterByQuery opts ih' = do
     where 
         filt ih js = fromJust . reduce $ ih
             where
-                incSet = S.fromList . map jsiKey $ js
+                incSet = S.fromList . map issueKey $ js
                 reduce :: IssueHierarchy -> Maybe IssueHierarchy
                 reduce IssueHierarchy {ihIssue = i, ihChildren = cs}
-                    | S.member (jsiKey i) incSet = Just (IssueHierarchy i cs')
+                    | S.member (issueKey i) incSet = Just (IssueHierarchy i cs')
                     | null cs' = Nothing
                     | otherwise = Just (IssueHierarchy i cs')
                     where cs' = filtCs cs 

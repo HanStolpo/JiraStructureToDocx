@@ -8,6 +8,7 @@ import System.Directory
 import Text.Pandoc
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Codec.Binary.UTF8.Generic as BS8
+import qualified Data.Aeson as AS
 import Text.Blaze.Renderer.String
 import System.FilePath
 -- Local imports
@@ -22,7 +23,7 @@ genDoc opts = do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optDocxFile $ opts
     cd <- getCurrentDirectory
     putStrLn "Reading issue hierarchy"
-    hierarchy :: IssueHierarchy <- liftM read $ readFile (optHierarchyFile opts)
+    Just hierarchy :: Maybe IssueHierarchy <- liftM AS.decode $ BS.readFile (optHierarchyFile opts)
     putStrLn "Generating pandoc"
     let pandoc = Pandoc docMeta $ concatMap hierarchyToDoc (ihChildren hierarchy)
     let bfn = dropExtension . optDocxFile $ opts
@@ -54,9 +55,9 @@ hierarchyToDoc = expndChild 1
                 cnt = parseDescription l $ filter (/= '\r') $ ihDescription issue :: [Block]
                 rest = concatMap (expndChild (l+1)) $ ihChildren issue :: [Block]
                 ihKey (IssueHierarchyRoot _) = ""
-                ihKey h = jsiKey . ihIssue $ h
+                ihKey h = issueKey . ihIssue $ h
                 ihSummary (IssueHierarchyRoot _) = ""
-                ihSummary h = jsiSummary . ihIssue $ h
+                ihSummary h = issueSummary . ihIssue $ h
                 ihDescription (IssueHierarchyRoot _) = ""
-                ihDescription h = fromMaybe "" . jsiDescription . ihIssue $ h
+                ihDescription h = fromMaybe "" . issueDescription . ihIssue $ h
 

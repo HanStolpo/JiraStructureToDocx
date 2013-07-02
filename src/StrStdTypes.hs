@@ -18,15 +18,15 @@ newtype StdSrc = StdSrc
 instance Out StdSrc
 
 class TestDesc a where
-    tstIssue    :: a -> JsIssue
-    tstModifyIssue :: a -> JsIssue -> a
-    tstStories  :: a -> [JsIssue]
+    tstIssue    :: a -> Issue
+    tstModifyIssue :: a -> Issue -> a
+    tstStories  :: a -> [Issue]
 
 
 data StdTestSrc = StdTestSrc 
         {
-            stdIssue :: JsIssue,
-            stdStories  :: [JsIssue],
+            stdIssue :: Issue,
+            stdStories  :: [Issue],
             stdSteps :: [TestStepInfo]
         } deriving (Show, Read, Generic)
 
@@ -49,8 +49,8 @@ instance Out StrSrc
 
 data StrTestSrc = StrTestSrc 
         {
-            strIssue    :: JsIssue,
-            strStories  :: [JsIssue],
+            strIssue    :: Issue,
+            strStories  :: [Issue],
             strResult   :: Schedule,
             strSteps    :: [(TestStepInfo, TestStepResult)]
         } deriving (Show, Read, Generic)

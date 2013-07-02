@@ -35,7 +35,7 @@ extractImages ih = M.fromList $ walk ih
                 | null cs  = extractFromIssue i 
                 | otherwise = concat $ (extractFromIssue i : map walk cs) 
         -- Get image map for the issue
-        extractFromIssue (JsIssue{jsiKey = k, jsiDescription = Just d, jsiAttachments = as}) = extract k d as
+        extractFromIssue (Issue{issueKey = k, issueDescription = Just d, issueAttachments = as}) = extract k d as
         extractFromIssue _ = [] -- doen't have an issue or doesn't have a description
         -- Get the list of images from the description
         extract :: String -> String -> [Attachment] -> [((String, String), Image)]
@@ -59,7 +59,7 @@ replaceImagesUri im ih = walk ih
         walk ih'@IssueHierarchyRoot{ihChildren = cs} = ih'{ihChildren = map walk cs}
         walk ih'@IssueHierarchy{ihIssue = i, ihChildren = cs} = ih' {ihIssue = newIssue i , ihChildren = map walk cs}
             where
-                newIssue i'@(JsIssue {jsiKey = k, jsiDescription = d}) = i'{jsiDescription = replaceImageLinks replacer <$> d}
+                newIssue i'@(Issue {issueKey = k, issueDescription = d}) = i'{issueDescription = replaceImageLinks replacer <$> d}
                     where
                         replacer iml@ImageLink {imgLink = img} = 
                             case M.lookup (k,img) im of
@@ -70,7 +70,7 @@ extractImagesFromTests :: TestDesc a => [a] -> ImageMap
 extractImagesFromTests ts = M.fromList . concatMap (extractFromIssue . tstIssue) $ ts
     where
         -- Get image map for the issue
-        extractFromIssue (JsIssue{jsiKey = k, jsiDescription = Just d, jsiAttachments = as}) = extract k d as
+        extractFromIssue (Issue{issueKey = k, issueDescription = Just d, issueAttachments = as}) = extract k d as
         extractFromIssue _ = [] -- doen't have an issue or doesn't have a description
         -- Get the list of images from the description
         extract :: String -> String -> [Attachment] -> [((String, String), Image)]
@@ -92,7 +92,7 @@ replaceImagesUriInTests :: TestDesc a => ImageMap -> [a] -> [a]
 replaceImagesUriInTests im ts = map trans ts
     where
         trans t = tstModifyIssue t . newIssue . tstIssue $ t
-        newIssue i'@(JsIssue {jsiKey = k, jsiDescription = d}) = i'{jsiDescription = replaceImageLinks replacer <$> d}
+        newIssue i'@(Issue {issueKey = k, issueDescription = d}) = i'{issueDescription = replaceImageLinks replacer <$> d}
             where
                 replacer iml@ImageLink {imgLink = img} = 
                     case M.lookup (k,img) im of

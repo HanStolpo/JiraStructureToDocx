@@ -14,6 +14,7 @@ import Data.ByteString.Char8 as B (pack)
 
 import Data.Maybe
 import Data.List
+import qualified Data.Set as S
 import Control.Monad
 import Control.Monad.Trans.Resource
 import Control.Applicative
@@ -25,8 +26,8 @@ import Text.PrettyPrint.GenericPretty as GP
 import Data.Char(toLower)
 -- local files
 import ProgramOptions
-import JiraTypes
-import ZephyrJson
+import JiraTypes     as J
+import ZephyrJson    as Z
 import StrStdTypes
 import ImageStripper
 import JiraStructureToIssueHierarchy
@@ -84,18 +85,18 @@ fetchTestStepResults opts man sid = do
         req = _makeReq opts url
     decodeTestStepResultsResponse . responseBody <$> httpLbs req man
 
-fetchTestIssueById :: Query_ Int JsIssue
+fetchTestIssueById :: Query_ Int Issue
 fetchTestIssueById opts man' iid = do
     -- repeated use of same connection is resulting the following bug (InvalidStatusLine "" when reusing a connection #117) in HTTP Conduit
     man <- liftIO $ newManager def 
     let url =  "/rest/api/latest/issue/" ++ show iid
         req = _makeReq opts url
-    decodeJsIssueResponse . responseBody <$> httpLbs req man
+    decodeIssueResponse . responseBody <$> httpLbs req man
 
 
 fetchStdTestSrc :: Query_ Schedule StdTestSrc
 fetchStdTestSrc opts man sc = do
-    let iid = issueId sc
+    let iid = Z.issueId sc
     issue <- _fromEither =<< fetchTestIssueById opts man iid
     let storyIds = _getTestsIssueIds issue
     stories <- forM storyIds (\i -> _fromEither =<< fetchTestIssueById opts man i)
@@ -108,6 +109,11 @@ _fetchStdSrc opts man cn = do
     scs <- _fromEither =<< fetchCycleSchedules opts man cid
     Right . StdSrc <$> forM scs (_fromEither <=< fetchStdTestSrc opts man)
 
+_extractOpenStdIssues :: [StdTestSrc] -> S.Set String
+_extractOpenStdIssues ts = S.fromList . map J.issueKey . concatMap f $ ts
+    where
+        f = filter (("Closed"/=) . issueStatus) . stdStories
+
 fetchStdSrc :: Options -> IO ()
 fetchStdSrc opts = withSocketsDo $ runResourceT $ do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optStrStdFile $ opts
@@ -117,11 +123,14 @@ fetchStdSrc opts = withSocketsDo $ runResourceT $ do
     let images = extractImagesFromTests (stdTests std')
     imagesLoc <- localizeImages manager (pack . fromJust . optUsr $ opts) (pack . fromJust . optPwd $ opts) (fromJust . optBaseUrl $ opts) (dropFileName . optStrStdFile $ opts) images
     let ts = replaceImagesUriInTests imagesLoc (stdTests std')
+    liftIO $ putStrLn "Writing out test data"
     liftIO $ writeFile (optStrStdFile opts) $ GP.pretty std'{stdTests = ts}
+    liftIO $ putStrLn "Writing out test issues"
+    liftIO $ writeFile (optStrStdIssuesFile opts) $ GP.pretty (S.toList $ _extractOpenStdIssues ts)
     return ()
 
-_getTestsIssueIds :: JsIssue -> [Int]
-_getTestsIssueIds JsIssue{jsiIssueLinks = ls} = map getId . filter onlyTest $ ls
+_getTestsIssueIds :: Issue -> [Int]
+_getTestsIssueIds Issue{issueLinks = ls} = map getId . filter onlyTest $ ls
     where
         getId (Outward _ i _) = i
         getId (Inward _ i _) = i
@@ -130,7 +139,7 @@ _getTestsIssueIds JsIssue{jsiIssueLinks = ls} = map getId . filter onlyTest $ ls
 
 fetchStrTestSrc :: Query_ Schedule StrTestSrc
 fetchStrTestSrc opts man sc = do
-    let iid = issueId sc
+    let iid = Z.issueId sc
         sid = scheduleId sc
     issue <- _fromEither =<< fetchTestIssueById opts man iid
     let storyIds = _getTestsIssueIds issue

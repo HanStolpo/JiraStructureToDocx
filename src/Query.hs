@@ -21,11 +21,11 @@ import JiraTypes
 
 
 data QueryRes_ = QueryRes_  { total      :: Int
-                            , issues     :: [JsIssue]
+                            , issues     :: [Issue]
                             } deriving (Show, Generic)
 instance FromJSON QueryRes_
 
-query :: Options -> IO [JsIssue]
+query :: Options -> IO [Issue]
 query opts = case optQueryString opts of
     Nothing -> return []
     Just qs -> withSocketsDo $ withManager (_query 0)
@@ -33,7 +33,7 @@ query opts = case optQueryString opts of
             usr = pack . fromJust . optUsr $ opts
             pwd = pack . fromJust . optPwd $ opts
             baseUrl = fromJust . optBaseUrl $ opts  
-            _query :: Int -> Manager -> ResourceT IO [JsIssue]
+            _query :: Int -> Manager -> ResourceT IO [Issue]
             _query fetched manager = do
                 resBody <- liftM  responseBody $ httpLbs req manager
                 case _decode resBody of
