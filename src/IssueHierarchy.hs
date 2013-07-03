@@ -51,7 +51,7 @@ case_serializeHierarchy = (Just h) @=? (AS.decode . (\s -> trace ("\n" ++ (unpac
                 [
                     IssueHierarchy 
                     {
-                        ihIssue = Issue
+                        ihIssue = defIssue 
                         {
                             issueId = 4,
                             issueKey = "issueKey",
@@ -69,7 +69,7 @@ case_serializeHierarchy = (Just h) @=? (AS.decode . (\s -> trace ("\n" ++ (unpac
                     },
                     IssueHierarchy 
                     {
-                        ihIssue = Issue
+                        ihIssue = defIssue
                         {
                             issueId = 5,
                             issueKey = "2issueKey",

@@ -42,7 +42,7 @@ query opts = case optQueryString opts of
                                         totalFetched = length is + fetched
                                         in if totalFetched >= total qr then return is  else (is++) <$> _query totalFetched manager
                 where 
-                    url = baseUrl ++ "/rest/api/2/search?jql=" ++ qs ++ "&startAt=" ++ show (fetched) ++ "&fields=summary,description,attachment,issuelinks,status" 
+                    url = baseUrl ++ "/rest/api/2/search?jql=" ++ qs ++ "&startAt=" ++ show (fetched) ++ "&fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003" 
                     req = applyBasicAuth  usr pwd $ (fromJust $ parseUrl url)
                     _decode :: ByteString -> Either String QueryRes_
                     _decode = eitherDecode

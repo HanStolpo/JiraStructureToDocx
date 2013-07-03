@@ -9,9 +9,11 @@
   , TemplateHaskell
   , TypeSynonymInstances 
   , FlexibleInstances 
+  , ScopedTypeVariables
   #-}
 module JiraTypes   ( Attachment(..)
                     , Issue(..)
+                    , defIssue
                     , IssueLink(..)
                     , decodeIssue
                     , decodeIssueResponse
@@ -30,6 +32,7 @@ import Test.Framework.TH
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)     -- only import string instances for overloaded strings
 import Control.Applicative((<$>), (<*>), (<|>))
 import Control.Monad
+import Data.Default
 
 import Utility
 
@@ -113,18 +116,26 @@ instance AS.FromJSON JsIssueLink where
 
 data Issue = Issue
     {
-        issueId  :: Int,                  -- The issue identifier
-        issueKey :: String,               -- The issue key
-        issueSummary :: String,           -- The summary field 
-        issueDescription :: Maybe String, -- The optional description field
-        issueStatus :: String,
-        issueAttachments :: [Attachment], -- The list of optional attachments
-        issueLinks :: [IssueLink]
+        issueId             :: Int,          -- The issue identifier
+        issueKey            :: String,       -- The issue key
+        issueSummary        :: String,       -- The summary field 
+        issueDescription    :: Maybe String, -- The optional description field
+        issueStatus         :: String,
+        issueAttachments    :: [Attachment], -- The list of optional attachments
+        issueLinks          :: [IssueLink],
+        issueLabels         :: [String],
+        issueStoryPoints    :: Maybe Int,
+        issueSources        :: Maybe String
     } 
     deriving (Eq, Show, Read, Generic)
 instance Out Issue
 instance AS.ToJSON Issue 
 instance AS.FromJSON Issue 
+instance Default Issue where
+    def = defIssue
+
+defIssue :: Issue
+defIssue = Issue 0 "" "" Nothing "" [] [] [] Nothing Nothing
 
 -- proxy type for decoding jira response
 newtype JsIssue = JsIssue {jsiGetIssue :: Issue} deriving (Eq, Show, Read, Generic)
@@ -141,7 +152,10 @@ instance AS.FromJSON JsIssue where
         status <- statusObj AS..: "name"
         attachments <- fields AS..:? "attachment" AS..!= []
         issueLinks <- fields AS..:? "issuelinks" AS..!= []
-        return $ JsIssue (Issue ident key summary description status (map jsiGetAttachment attachments) (map jsiGetIssueLink issueLinks))
+        labels :: [String] <- fields AS..:? "labels" AS..!= []
+        storyPoints :: Maybe Int <- fields AS..:? "customfield_10003" AS..!= Nothing
+        sources :: Maybe String <- fields AS..:? "customfield_10900" AS..!= Nothing
+        return $ JsIssue (Issue ident key summary description status (map jsiGetAttachment attachments) (map jsiGetIssueLink issueLinks) labels storyPoints sources)
     parseJSON a = AS.typeMismatch "Expecting JSON object for JsIssue" a
 
 decodeIssue :: Monad m => ByteString -> m Issue
@@ -161,9 +175,14 @@ decodeJsIssueResponse = AS.eitherDecode
 case_decodeIssueResponse :: Assertion
 case_decodeIssueResponse = Right expected @=? decodeIssueResponse s
     where
-        expected = Issue 15846 "LYNX-853" "summaryBlah" (Just "descriptionBlah") "Resolved"
-                    [] 
-                    [Inward "relates to" 15824 "LYNX-831", Outward "tests" 15498 "LYNX-619"]
+        expected = defIssue {issueId = 15846
+                            ,issueKey = "LYNX-853"
+                            ,issueSummary = "summaryBlah"
+                            ,issueDescription = Just "descriptionBlah"
+                            ,issueStatus = "Resolved"
+                            ,issueLinks = [Inward "relates to" 15824 "LYNX-831", Outward "tests" 15498 "LYNX-619"]
+                            ,issueLabels = ["LxIpe"]
+                            }
         s = [r|{"expand": "renderedFields,names,schema,transitions,operations,editmeta,changelog",
                 "id": "15846",
                 "self": "http://jira.server.com/rest/api/latest/issue/15846",
@@ -280,7 +299,7 @@ case_decodeIssueResponse = Right expected @=? decodeIssueResponse s
 case_serializeIssue :: Assertion
 case_serializeIssue = Just i @=? (AS.decode .  prettyJson . AS.encode $ i)
     where 
-        i = Issue
+        i = defIssue
             {
                 issueId = 4,
                 issueKey = "issueKey",
@@ -299,7 +318,7 @@ case_serializeIssue = Just i @=? (AS.decode .  prettyJson . AS.encode $ i)
 case_deserializeIssue :: Assertion
 case_deserializeIssue = Just i @=? AS.decode s
     where
-        i = Issue
+        i = defIssue
             {
                 issueId = 4,
                 issueKey = "issueKey",
@@ -326,6 +345,7 @@ case_deserializeIssue = Just i @=? AS.decode s
                 "issueSummary":"issueSummary",
                 "issueStatus":"issueStatus",
                 "issueLinks":[],
+                "issueLabels":[]
                 }
             |]
 -------------------------------------------------

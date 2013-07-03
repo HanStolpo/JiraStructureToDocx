@@ -89,7 +89,7 @@ fetchTestIssueById :: Query_ Int Issue
 fetchTestIssueById opts man' iid = do
     -- repeated use of same connection is resulting the following bug (InvalidStatusLine "" when reusing a connection #117) in HTTP Conduit
     man <- liftIO $ newManager def 
-    let url =  "/rest/api/latest/issue/" ++ show iid
+    let url =  "/rest/api/latest/issue/" ++ show iid ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
         req = _makeReq opts url
     decodeIssueResponse . responseBody <$> httpLbs req man
 

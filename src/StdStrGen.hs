@@ -18,6 +18,7 @@ import Control.Monad
 import Data.Maybe
 import Data.List
 import qualified Data.Set as S
+import qualified Data.Aeson as AS
 -- private imports
 import ProgramOptions
 import StrStdTypes
@@ -35,7 +36,7 @@ genStr opts = do
     putStrLn "Reading str source "
     strSrc :: StrSrc <- liftM read $ readFile (optStrStdFile opts)
     putStrLn "Reading issue hierarchy"
-    hierarchy :: IssueHierarchy <- liftM read $ readFile (optHierarchyFile opts)
+    Just hierarchy :: Maybe IssueHierarchy <- liftM AS.decode $ BS.readFile (optHierarchyFile opts)
     putStrLn "Generating pandoc"
     cd <- getCurrentDirectory
     let bfn = dropExtension . optDocxFile $ opts
@@ -219,7 +220,7 @@ genStd opts = do
     putStrLn "Reading std source "
     stdSrc :: StdSrc <- liftM read $ readFile (optStrStdFile opts)
     putStrLn "Reading issue hierarchy"
-    hierarchy :: IssueHierarchy <- liftM read $ readFile (optHierarchyFile opts)
+    Just hierarchy :: Maybe IssueHierarchy <- liftM AS.decode $ BS.readFile (optHierarchyFile opts)
     putStrLn "Generating pandoc"
     cd <- getCurrentDirectory
     let bfn = dropExtension . optDocxFile $ opts

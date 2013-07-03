@@ -25,6 +25,7 @@ data Operation =  FetchOnly         --- Fetch the structure only and don't gener
                 | FetchStd          --- Fethc the STD
                 | GenDocStr         --- Generate the STR document
                 | GenDocStd         --- Generate the STD document
+                | GenFs             --- Generate the FS traceability
                 deriving (Show, Data, Typeable, Generic)
 -- Make Operation pretty printable
 instance Out Operation
@@ -35,6 +36,7 @@ data Options = Options  { optOperation          :: Operation
                         , optBaseUrl            :: Maybe String
                         , optStructureId        :: Maybe Int
                         , optHierarchyFile      :: String
+                        , optHierarchySssFile   :: Maybe String
                         , optDocxFile           :: String
                         , optProjectId          :: Maybe Int
                         , optCycleName          :: Maybe String
@@ -52,6 +54,7 @@ optionsDefault = Options { optOperation         = FetchOnly
                          , optBaseUrl           = Nothing
                          , optStructureId       = Nothing
                          , optHierarchyFile     = "StructureHierarchy.txt"
+                         , optHierarchySssFile  = Nothing
                          , optDocxFile          = "Structure.docx"
                          , optProjectId         = Nothing
                          , optCycleName         = Nothing
@@ -67,12 +70,14 @@ options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= n
                                                 , FetchStd      &= explicit &= name "fetch-std"     &= help "Fetch the data related to the STD"
                                                 , GenDocStr     &= explicit &= name "gen-doc-str"   &= help "Generate the STR given the data previously fetched"
                                                 , GenDocStd     &= explicit &= name "gen-doc-std"   &= help "Generate the STD given the data previously fetched"
+                                                , GenFs         &= explicit &= name "gen-doc-fs"    &= help "Generate the FS traceability to the SSS"
                                                 ]
                   , optUsr              = def  &= explicit &= name "usr"                    &= help "user name"
                   , optPwd              = def  &= explicit &= name "pwd"                    &= help "password"
                   , optBaseUrl          = def  &= explicit &= name "url"                    &= help "the base URL to the JIRA instance"
                   , optStructureId      = def  &= explicit &= name "sid"                    &= help "the ID of the JIRA structure"
                   , optHierarchyFile    = defH &= explicit &= name "hierarchy-file"         &= help "the name of the hierarchy file that will be used" &= opt defH
+                  , optHierarchySssFile = def  &= explicit &= name "sss-hierarchy-file"     &= help "when generating the FS traceability then the SSS hierarchy needs to be supplied too"
                   , optDocxFile         = defD &= explicit &= name "document-file"          &= help "the name of the document file that will be generated" &= opt defD
                   , optProjectId        = def  &= explicit &= name "projid"                 &= help "the ID of the JIRA project"
                   , optCycleName        = def  &= explicit &= name "cycle-name"             &= help "the name of the Zephyr test cycle"
@@ -114,6 +119,14 @@ validate opts@(Options {optOperation =  FetchStd}) = _validateFetchStrStd False 
 validate opts@(Options {optOperation =  GenDocStr}) = _validateGenStrStd opts
 
 validate opts@(Options {optOperation =  GenDocStd}) = _validateGenStrStd opts
+
+validate opts@(Options {optOperation =  GenFs, ..}) = do
+    ph <- validateFile optHierarchyFile
+    ph2 <- case optHierarchySssFile of
+            Just h -> validateFile h
+            Nothing -> fail "For FS expecting a hierarchy file contianing the SSS"
+    pd <- canonicalizePath optDocxFile
+    return opts {optHierarchyFile = ph, optDocxFile = pd}
 
 _validateFetchStrStd :: Bool -> Options -> IO Options
 _validateFetchStrStd isStr opts@(Options{..}) = do

@@ -176,7 +176,7 @@ forestToHierarchyIssue :: (MonadBaseControl IO m, MonadResource m) =>
                           -> Int
                           -> m IssueHierarchy
 forestToHierarchyIssue manager usrn pwd baseUrl forest i = do
-    let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment,issuelinks,status"
+    let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
     let req =  applyBasicAuth  usrn pwd  (fromJust $ parseUrl url)
     res <- trace ("fetching " ++ show i) $ httpLbs req manager
     jsIssue <- decodeIssue $ responseBody res
