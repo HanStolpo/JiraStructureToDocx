@@ -37,13 +37,15 @@ genStr opts = do
     strSrc :: StrSrc <- liftM read $ readFile (optStrStdFile opts)
     putStrLn "Reading issue hierarchy"
     Just hierarchy :: Maybe IssueHierarchy <- liftM AS.decode $ BS.readFile (optHierarchyFile opts)
+    putStrLn "Reading test issues"
+    setIssues :: S.Set String <- liftM (S.fromList . read) $ readFile (optStrStdIssuesFile opts)
     putStrLn "Generating pandoc"
     cd <- getCurrentDirectory
     let bfn = dropExtension . optDocxFile $ opts
         -- _docOptions ::  FilePath -> WriterOptions
         docOptions = def {writerUserDataDir = Just cd}
         docMeta = Meta {docTitle = [], docAuthors = [], docDate = []}
-        pandoc = Pandoc docMeta (_strToDoc strSrc hierarchy)
+        pandoc = Pandoc docMeta (_strToDoc strSrc hierarchy setIssues)
     putStrLn "Generating native"
     writeFile (bfn ++ "_Native.txt") $ writeNative docOptions pandoc
     putStrLn "Generating markdown"
@@ -69,16 +71,17 @@ _statusToText  = _s
 infixl 8 <|
 f <| a = f a
 
-_strToDoc :: StrSrc -> IssueHierarchy -> [Block]
-_strToDoc StrSrc{..} hierarchy = toList $   
-                                header 1 . text <| "Requirements Accepted" <> _strRequirementsAccepted strTests 
+_strToDoc :: StrSrc -> IssueHierarchy -> S.Set String -> [Block]
+_strToDoc StrSrc{..} hierarchy setIssues = toList $   
+                                header 1 . text <| "Requirements Accepted" <> _strRequirementsAccepted strTests setIssues
+                             <> header 1 . text <| "Requirements Rejected" <> _strRequirementsRejected strTests setIssues
                              <> header 1 . text <| "Test Result Summary" <> _strTestCaseSummary strTests 
                              <> header 1 . text <| "Tests" <> _strTestCases 2 strTests
                              <> header 1 . text <| "Traceability" <> _strRequirementTraceability strTests
                              <> _hierarchyExerpt hierarchy strTests
 
-_strRequirementsAccepted :: [StrTestSrc] -> Blocks
-_strRequirementsAccepted ts = if null rs 
+_strRequirementsAccepted :: [StrTestSrc] -> S.Set String -> Blocks
+_strRequirementsAccepted ts setIssues = if null rs 
         then para . text <| "No requirements were accepted as implemented." 
         else  para . text <| "The following requirements have been verified and accepted as implemented:" <> simpleTable [para . text <| "Requirement ID"
                                                                                                                          ,para . text <| "Requirement Title"
@@ -89,7 +92,7 @@ _strRequirementsAccepted ts = if null rs
         rs :: [[Blocks]]
         rs = filter (not . null) . map snd . sortBy cmp . concatMap closedStories $ ts
         closedStories :: StrTestSrc -> [(String, [Blocks])]
-        closedStories t = map cmb . filter ((==) "Closed" . issueStatus) . strStories $ t
+        closedStories t = map cmb . filter (flip S.member setIssues . J.issueKey) . filter ((==) "Closed" . issueStatus) . strStories $ t
             where 
                 cmb :: Issue -> (String, [Blocks])
                 cmb i = (J.issueKey i, inf i ++ (inf . strIssue $ t))
@@ -98,6 +101,26 @@ _strRequirementsAccepted ts = if null rs
         cmp :: (String, [Blocks]) -> (String, [Blocks]) -> Ordering
         cmp l r = compare (_extractIdFromKey . fst $ l) (_extractIdFromKey . fst $ r)
 
+_strRequirementsRejected :: [StrTestSrc] -> S.Set String -> Blocks
+_strRequirementsRejected ts setIssues = if null rs 
+        then para . text <| "No requirements were rejected as not implemented." 
+        else  para . text <| "The following requirements have been rejected and not accepted as implemented:" <> simpleTable [para . text <| "Requirement ID"
+                                                                                                                         ,para . text <| "Requirement Title"
+                                                                                                                         ,para . text <| "Test ID"
+                                                                                                                         ,para . text <| "Test Title"
+                                                                                                                         ] rs
+    where
+        rs :: [[Blocks]]
+        rs = filter (not . null) . map snd . sortBy cmp . concatMap openStories $ ts
+        openStories :: StrTestSrc -> [(String, [Blocks])]
+        openStories t = map cmb . filter (flip S.member setIssues . J.issueKey) . filter ((/=) "Closed" . issueStatus) . strStories $ t
+            where 
+                cmb :: Issue -> (String, [Blocks])
+                cmb i = (J.issueKey i, inf i ++ (inf . strIssue $ t))
+        inf :: Issue -> [Blocks]
+        inf i = [para . text . J.issueKey $ i, para . text . issueSummary $ i]
+        cmp :: (String, [Blocks]) -> (String, [Blocks]) -> Ordering
+        cmp l r = compare (_extractIdFromKey . fst $ l) (_extractIdFromKey . fst $ r)
 
 _strTestCases :: Int -> [StrTestSrc] -> Blocks
 _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
