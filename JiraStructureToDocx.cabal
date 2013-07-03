@@ -13,7 +13,7 @@ executable JiraStructureToDocx
     main-is:            JiraStructureToDocx.hs
     GHC-Options:        -Wall -O4 -optc-Os
     hs-source-dirs:     src
-    Other-Modules:      DescriptionParser, ImageStripper, IssueHierarchy, ProgramOptions, IssueHierarchyToDocx, JiraStructureToIssueHierarchy, ZephyrJson, JiraTypes, DocxCustom, Highlighting, ImageSize, MIME, Query
+    Other-Modules:      DescriptionParser, ImageStripper, IssueHierarchy, ProgramOptions, IssueHierarchyToDocx, JiraStructureToIssueHierarchy, ZephyrJson, JiraTypes, IssueHierarchyToFsDocx, DocxCustom, Highlighting, ImageSize, MIME, Query
     build-depends:      base, 
                         containers,
                         http-conduit == 1.9.4, 
@@ -53,7 +53,8 @@ executable JiraStructureToDocx
                         xml,
                         time,
                         zip-archive,
-                        data-default
+                        data-default,
+                        text
 
 
 Test-Suite test-parser
@@ -78,5 +79,6 @@ Test-Suite test-parser
                         blaze-markup,
                         utf8-string,
                         pandoc-types,
-                        data-default
+                        data-default,
+                        text
 

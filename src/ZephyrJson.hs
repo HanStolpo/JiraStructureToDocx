@@ -32,6 +32,7 @@ import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.Framework.TH
 import Data.ByteString.Lazy.Char8 (ByteString)     -- only import string instances for overloaded strings
+import qualified Data.Text as T
 import qualified Data.Map as M
 import Data.Maybe(fromMaybe, isJust)
 import Control.Applicative(pure, (<$>), (<|>), (<*>))
@@ -122,7 +123,7 @@ instance AS.FromJSON ScheduleDef_ where
         executedOn' <- v AS..:? "executedOn" AS..!= ""
         executedBy' <- v AS..:? "executedByDisplay" AS..!= ""
         executionStatus' <- v AS..: "executionStatus"
-        comment' <- v AS..:? "comment" AS..!= ""
+        comment' <- v AS..:? "htmlComment" AS..!= ""
         return ScheduleDef_ {executionStatus = executionStatus', schedule = Schedule {  scheduleCycleId =scheduleCycleId',
                                                                                         scheduleId =scheduleId',
                                                                                         issueKey =issueKey',
@@ -157,13 +158,13 @@ case_decodeScheduleDef = Right expected @=? AS.eitherDecode s
                 "executedByDisplay": "executedByDisplayBlah", 
                 "executionStatus": "1",
                 "projectID": 10500, 
-                "htmlComment": "",
+                "htmlComment": "commentBlah",
                 "executedBy": "handre.stolp", 
                 "component": "", 
                 "versionID": -1,
                 "issueKey": "LYNX-1002", 
                 "scheduleID": 75, 
-                "comment": "commentBlah"}
+                "comment": ""}
             |]
 
 
@@ -207,7 +208,7 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                                                                                             summary = "summaryBlah1",
                                                                                             executedOn = "executedOnBlah1",
                                                                                             executedBy = "executedByDisplayBlah1",
-                                                                                            comment = "commentBlah1" }},
+                                                                                            comment = "htmlCommentBlah1" }},
                                     ScheduleDef_ {executionStatus = "2", schedule = Schedule {scheduleCycleId = 2,
                                                                                             scheduleId = 76,
                                                                                             issueKey = "LYNX-992",
@@ -216,7 +217,7 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                                                                                             summary = "summaryBlah2",
                                                                                             executedOn = "executedOnBlah2",
                                                                                             executedBy = "executedByDisplayBlah2",
-                                                                                            comment = "commentBlah2" }}],
+                                                                                            comment = "htmlCommentBlah2" }}],
                       totalSchedules = 34
                     }
         s = [r|{"status": { "1": {"id":  1, "color": "#75B000", "desc": "blah", "name": "PASS"},
@@ -321,7 +322,7 @@ instance AS.FromJSON TestStepResult where
             stepResInfoId' <- v AS..: "stepId" 
             status <- v AS..: "status"
             executionStatus <- v AS..: "executionStatus"
-            stepResComment' <- v AS..:? "comment" AS..!= ""
+            stepResComment' <- v AS..:? "htmlComment" AS..!= ""
             return TestStepResult {stepResId = stepResId', stepResInfoId = stepResInfoId', stepResStatus = toS status executionStatus, stepResComment = stepResComment'}
             where
                 toS :: String -> [StatusDef_] -> TestStatus
@@ -336,7 +337,7 @@ decodeTestStepResultsResponse = AS.eitherDecode
 case_decodeTestStepResult ::  Assertion
 case_decodeTestStepResult = Right expected @=? AS.eitherDecode s
     where
-        expected =  TestStepResult 160 226 TestPass  "commentBlah"
+        expected =  TestStepResult 160 226 TestPass  "htmlCommentBlah"
         s = [r|{"id": 160, "executedOn": 1369150244095, "status": "1",
                 "comment": "commentBlah",
                 "htmlComment": "htmlCommentBlah",
@@ -424,5 +425,5 @@ case_decodeProjectCycles = Right expected @=? decodeProjectCyclesResponse s
 -------------------------------------------------
 -- Debug main
 ------------------------------------------------
-{-main :: IO ()-}
-{-main = defaultMain [zephyrJsonTestGroup]-}
+main :: IO ()
+main = defaultMain [zephyrJsonTestGroup]

@@ -9,6 +9,7 @@ module StdStrGen    ( genStr
 import System.Directory
 import System.FilePath
 import Text.Pandoc
+import Text.Pandoc.Readers.HTML
 import Text.Pandoc.Builder
 {-import Text.Pandoc.Generic-}
 import Text.Blaze.Renderer.String
@@ -16,6 +17,7 @@ import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Codec.Binary.UTF8.Generic as BS8
 import Control.Monad
 import Data.Maybe
+import Data.Monoid
 import Data.List
 import qualified Data.Set as S
 import qualified Data.Aeson as AS
@@ -122,6 +124,11 @@ _strRequirementsRejected ts setIssues = if null rs
         cmp :: (String, [Blocks]) -> (String, [Blocks]) -> Ordering
         cmp l r = compare (_extractIdFromKey . fst $ l) (_extractIdFromKey . fst $ r)
 
+_htmlText :: String -> Blocks
+_htmlText s = case readHtml def .filter (/='\r') $ s of
+                        Pandoc _ bs -> fromList  bs
+    
+
 _strTestCases :: Int -> [StrTestSrc] -> Blocks
 _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
     where
@@ -133,7 +140,7 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                 ss = strSteps t
                 hdr = header h $ text . J.issueKey <| ti <> str " - " <> text . issueSummary <| ti
                 stat = header (h+1) . text <| "Status" <> para . text . _statusToText . status <| tr
-                cmnt = header (h+1) . text <| "Comment" <> para . text. (\s-> if s =="" then "No comments." else s) . comment <| tr
+                cmnt = header (h+1) . text <| "Comment" <> _htmlText . (\s-> if s =="" then "No comments." else s) . comment <| tr
                 desc = header (h+1) . text <| "Description" 
                         <> fromList . normHdrs . parseDescription 0 . filter (/= '\r') . fromMaybe "" . issueDescription <| ti
                 normHdrs :: [Block] -> [Block]
@@ -160,7 +167,7 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                                  ,para . text . stepInfoData . fst . fst $ s
                                  ,para . text . stepInfoExpect . fst . fst $ s
                                  ,para . text . _statusToText . stepResStatus . snd . fst $ s
-                                 ,para . text . stepResComment . snd . fst $ s]
+                                 ,_htmlText . stepResComment . snd . fst $ s]
 
 _strTestCaseSummary :: [StrTestSrc] -> Blocks
 _strTestCaseSummary ts = if null rs 
