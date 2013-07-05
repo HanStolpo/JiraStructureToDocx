@@ -15,6 +15,7 @@ import Data.Maybe
 import Data.Conduit.Binary (sinkFile)
 import qualified Data.Conduit as C
 import Data.Aeson as AS
+import Data.Yaml as YAML
 import Data.Typeable
 import Data.Data
 import Control.Monad.Error
@@ -62,7 +63,7 @@ fetchHierarchy opts = withSocketsDo $ runResourceT $ do
     imagesLoc <- localizeImages manager usrn pwd baseUrl (dropFileName . optHierarchyFile $ opts) images
     let hierarchy' = replaceImagesUri imagesLoc hierarchy
     liftIO $ putStrLn "Writing out hierarchy file"
-    liftIO $ L.writeFile (optHierarchyFile opts) . prettyJson . AS.encode $ hierarchy'
+    liftIO $ BW8.writeFile (optHierarchyFile  opts) . YAML.encode $ hierarchy'
     return ()
 
 ---------------------------------------------------------------------------

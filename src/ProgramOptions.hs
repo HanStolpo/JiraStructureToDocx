@@ -53,7 +53,7 @@ optionsDefault = Options { optOperation         = FetchOnly
                          , optPwd               = Nothing
                          , optBaseUrl           = Nothing
                          , optStructureId       = Nothing
-                         , optHierarchyFile     = "StructureHierarchy.txt"
+                         , optHierarchyFile     = "StructureHierarchy.yaml"
                          , optHierarchySssFile  = Nothing
                          , optDocxFile          = "Structure.docx"
                          , optProjectId         = Nothing

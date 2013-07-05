@@ -54,7 +54,9 @@ executable JiraStructureToDocx
                         time,
                         zip-archive,
                         data-default,
-                        text
+                        text,
+                        yaml,
+                        strings
 
 
 Test-Suite test-parser
@@ -80,5 +82,7 @@ Test-Suite test-parser
                         utf8-string,
                         pandoc-types,
                         data-default,
-                        text
+                        text,
+                        yaml,
+                        strings
 

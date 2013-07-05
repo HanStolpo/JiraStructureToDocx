@@ -7,8 +7,10 @@ import Control.Monad.Error
 import System.Directory
 import Text.Pandoc
 import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString as B
 import qualified Codec.Binary.UTF8.Generic as BS8
 import qualified Data.Aeson as AS
+import qualified Data.Yaml as YAML
 import Text.Blaze.Renderer.String
 import System.FilePath
 -- Local imports
@@ -23,7 +25,7 @@ genDoc opts = do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optDocxFile $ opts
     cd <- getCurrentDirectory
     putStrLn "Reading issue hierarchy"
-    Just hierarchy :: Maybe IssueHierarchy <- liftM AS.decode $ BS.readFile (optHierarchyFile opts)
+    Just hierarchy :: Maybe IssueHierarchy <- liftM YAML.decode $ B.readFile (optHierarchyFile opts)
     putStrLn "Generating pandoc"
     let pandoc = Pandoc docMeta $ concatMap hierarchyToDoc (ihChildren hierarchy)
     let bfn = dropExtension . optDocxFile $ opts

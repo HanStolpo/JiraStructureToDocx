@@ -24,15 +24,19 @@ import GHC.Generics
 import Text.PrettyPrint.GenericPretty as GP
 import qualified Data.Aeson as AS
 import qualified Data.Aeson.Types as AS (typeMismatch)
+import qualified Data.Yaml as YAML
+import Data.Strings
 import Text.RawString.QQ
 import Test.HUnit
 import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.Framework.TH
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)     -- only import string instances for overloaded strings
+import qualified Data.ByteString as BS
 import Control.Applicative((<$>), (<*>), (<|>))
 import Control.Monad
 import Data.Default
+import Debug.Trace
 
 import Utility
 
@@ -297,14 +301,32 @@ case_decodeIssueResponse = Right expected @=? decodeIssueResponse s
 
 
 case_serializeIssue :: Assertion
-case_serializeIssue = Just i @=? (AS.decode .  prettyJson . AS.encode $ i)
+case_serializeIssue = Just i @=? (AS.decode . {-(\s -> trace ("\n****\n" ++ unpack s ++ "\n****\n") s) .-}  prettyJson . AS.encode $ i)
     where 
         i = defIssue
             {
                 issueId = 4,
                 issueKey = "issueKey",
                 issueSummary = "issueSummary",
-                issueDescription = Just "issueDescription",
+                issueDescription = Just "issueDescription\nhi there, i say \n, what are",
+                issueStatus = "issueStatus",
+                issueAttachments = [Attachment {
+                                    attMimeType = "attMimeType",
+                                    attUri = "attUri",
+                                    attFileName = "attFileName"
+                                    }],
+                issueLinks = [Outward "Blah" 1 "Blah", Inward "Blahs" 2 "Blahs"]
+            }
+
+case_serializeIssueYaml :: Assertion
+case_serializeIssueYaml = Just i @=? (YAML.decode . (\s -> trace ("\n****\n" ++ toString s ++ "\n****\n") s) .  YAML.encode $ i)
+    where 
+        i = defIssue
+            {
+                issueId = 4,
+                issueKey = "issueKey",
+                issueSummary = "issueSummary",
+                issueDescription = Just "issueDescription\nhi there, i say \n, what are",
                 issueStatus = "issueStatus",
                 issueAttachments = [Attachment {
                                     attMimeType = "attMimeType",
@@ -316,7 +338,7 @@ case_serializeIssue = Just i @=? (AS.decode .  prettyJson . AS.encode $ i)
 
 -- Note missing maybe is fine but empty strings are not
 case_deserializeIssue :: Assertion
-case_deserializeIssue = Just i @=? AS.decode s
+case_deserializeIssue = Right i @=? AS.eitherDecode s
     where
         i = defIssue
             {
@@ -333,19 +355,26 @@ case_deserializeIssue = Just i @=? AS.decode s
                 issueLinks = [] -- [(Outward "Blah" 1 "Blah"), (Inward "Blahs" 2 "Blahs")]
             }
         s = [r|
-                {"issueAttachments":
+                {"issueDescription":null,
+                "issueAttachments":
                 [
-                    {"attUri":"attUri",
+                {"attUri":"attUri",
                     "attFileName":"attFileName",
                     "attMimeType":"attMimeType"
-                    }
+                }
+                ],
+                "issueStoryPoints":null,
+                "issueSources":null,
+                "issueLabels":
+                [
                 ],
                 "issueId":4,
                 "issueKey":"issueKey",
                 "issueSummary":"issueSummary",
                 "issueStatus":"issueStatus",
-                "issueLinks":[],
-                "issueLabels":[]
+                "issueLinks":
+                [
+                ]
                 }
             |]
 -------------------------------------------------
