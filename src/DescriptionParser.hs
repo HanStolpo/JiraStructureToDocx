@@ -490,7 +490,7 @@ prsCitation = do
 
 -- -deleted-
 prsDeleted :: MyParser Inline
-prsDeleted = prsInlFmt InlDel Strikeout "-"
+prsDeleted = fail "" -- prsInlFmt InlDel Strikeout "-"
 
 -- +inserted+
 prsInserted :: MyParser Inline

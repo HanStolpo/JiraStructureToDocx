@@ -15,8 +15,10 @@ import Text.Pandoc
 import Text.Pandoc.Builder
 import Text.Pandoc.Generic
 import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString as B
 import qualified Codec.Binary.UTF8.Generic as BS8
 import qualified Data.Aeson as AS
+import qualified Data.Yaml as YAML
 import Text.Blaze.Renderer.String
 import System.FilePath
 -- Local imports
@@ -31,9 +33,9 @@ genFsDoc opts = do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optDocxFile $ opts
     cd <- getCurrentDirectory
     putStrLn "Reading FS issue hierarchy"
-    Just fsH :: Maybe IssueHierarchy <- liftM AS.decode . BS.readFile . optHierarchyFile $ opts
+    Just fsH :: Maybe IssueHierarchy <- liftM YAML.decode . B.readFile . optHierarchyFile $ opts
     putStrLn "Reading SSS issue hierarchy"
-    Just ssH :: Maybe IssueHierarchy <- liftM AS.decode . BS.readFile . fromJust . optHierarchySssFile $ opts
+    Just ssH :: Maybe IssueHierarchy <- liftM YAML.decode . B.readFile . fromJust . optHierarchySssFile $ opts
     putStrLn "Generating pandoc"
     let pandoc = replaceImages $ Pandoc docMeta $ hierarchyToDoc (ihChildren fsH) (ihChildren ssH)
     {-let bfn = dropExtension . optDocxFile $ opts-}
@@ -183,5 +185,5 @@ trmSssToFs fs sss = concatMap (sortBy cmpC3) . groupBy grpC1 . sortBy cmpC1 . ma
 
 main :: IO ()
 main = do
-    let opts = optionsDefault {optDocxFile = "../Output/FsTrace.docx", optHierarchySssFile = Just "../Output/LynxSssIssueHierarchy.txt", optHierarchyFile = "../Output/LynxFsHierarchy.txt"}
+    let opts = optionsDefault {optDocxFile = "../Output/FsTrace.docx", optHierarchySssFile = Just "../Output/LynxSssIssueHierarchy.yaml", optHierarchyFile = "../Output/LynxFsHierarchy.txt"}
     genFsDoc opts
