@@ -14,6 +14,7 @@ import Text.Pandoc.Builder
 {-import Text.Pandoc.Generic-}
 import Text.Blaze.Renderer.String
 import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString as B
 import qualified Codec.Binary.UTF8.Generic as BS8
 import Control.Monad
 import Data.Maybe
@@ -21,6 +22,7 @@ import Data.Monoid
 import Data.List
 import qualified Data.Set as S
 import qualified Data.Aeson as AS
+import qualified Data.Yaml as YAML
 -- private imports
 import ProgramOptions
 import StrStdTypes
@@ -38,7 +40,7 @@ genStr opts = do
     putStrLn "Reading str source "
     strSrc :: StrSrc <- liftM read $ readFile (optStrStdFile opts)
     putStrLn "Reading issue hierarchy"
-    Just hierarchy :: Maybe IssueHierarchy <- liftM AS.decode $ BS.readFile (optHierarchyFile opts)
+    Just hierarchy :: Maybe IssueHierarchy <- liftM YAML.decode $ B.readFile (optHierarchyFile opts)
     putStrLn "Reading test issues"
     setIssues :: S.Set String <- liftM (S.fromList . read) $ readFile (optStrStdIssuesFile opts)
     putStrLn "Generating pandoc"
@@ -127,6 +129,21 @@ _strRequirementsRejected ts setIssues = if null rs
 _htmlText :: String -> Blocks
 _htmlText s = case readHtml def .filter (/='\r') $ s of
                         Pandoc _ bs -> fromList  bs
+
+_cell :: String -> Blocks
+_cell  = plain . build 
+    where
+        build :: String -> Inlines
+        build [] = mempty
+        build s = lns <> txt <> build s'
+            where
+                (nl, nnl) = span (`elem`"\n\r") s 
+                (t, s') = break  (`elem`"\n\r") nnl 
+                numNls = length nl
+                lns = mconcat . replicate numNls $ linebreak
+                txt = case t of
+                        [] -> mempty 
+                        ts -> str ts
     
 
 _strTestCases :: Int -> [StrTestSrc] -> Blocks
@@ -162,11 +179,11 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                 steps :: [[Blocks]]
                 steps = map step (zip ss [1..])
                     where 
-                        step s = [para . text . show . snd $ s
-                                 ,para . text . stepInfoDesc . fst . fst $ s
-                                 ,para . text . stepInfoData . fst . fst $ s
-                                 ,para . text . stepInfoExpect . fst . fst $ s
-                                 ,para . text . _statusToText . stepResStatus . snd . fst $ s
+                        step s = [_cell . show . snd $ s
+                                 ,_cell . stepInfoDesc . fst . fst $ s
+                                 ,_cell . stepInfoData . fst . fst $ s
+                                 ,_cell . stepInfoExpect . fst . fst $ s
+                                 ,_cell . _statusToText . stepResStatus . snd . fst $ s
                                  ,_htmlText . stepResComment . snd . fst $ s]
 
 _strTestCaseSummary :: [StrTestSrc] -> Blocks
@@ -250,7 +267,7 @@ genStd opts = do
     putStrLn "Reading std source "
     stdSrc :: StdSrc <- liftM read $ readFile (optStrStdFile opts)
     putStrLn "Reading issue hierarchy"
-    Just hierarchy :: Maybe IssueHierarchy <- liftM AS.decode $ BS.readFile (optHierarchyFile opts)
+    Just hierarchy :: Maybe IssueHierarchy <- liftM YAML.decode $ B.readFile (optHierarchyFile opts)
     putStrLn "Generating pandoc"
     cd <- getCurrentDirectory
     let bfn = dropExtension . optDocxFile $ opts
@@ -305,10 +322,10 @@ _stdTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                 steps :: [[Blocks]]
                 steps = map step (zip ss [1..])
                     where 
-                        step s = [para . text . show . snd $ s
-                                 ,para . text . stepInfoDesc . fst $ s
-                                 ,para . text . stepInfoData . fst $ s
-                                 ,para . text . stepInfoExpect . fst $ s
+                        step s = [_cell . show . snd $ s
+                                 ,_cell . stepInfoDesc . fst $ s
+                                 ,_cell . stepInfoData . fst $ s
+                                 ,_cell . stepInfoExpect . fst $ s
                                  ]
 
 
