@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, DeriveGeneric, RankNTypes #-}
+{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, DeriveGeneric, RankNTypes, OverloadedStrings#-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 
 module Query  (query
@@ -11,10 +11,12 @@ import Data.ByteString.Char8 as B (pack)
 import GHC.Generics
 import Data.Maybe
 import Data.Aeson
+import Data.Aeson.Types (typeMismatch)
 import Control.Monad
 import Control.Monad.Trans.Resource
 import Control.Applicative
 import Network.Socket(withSocketsDo)
+import Debug.Trace
 -- local files
 import ProgramOptions
 import JiraTypes
@@ -23,7 +25,14 @@ import JiraTypes
 data QueryRes_ = QueryRes_  { total      :: Int
                             , issues     :: [Issue]
                             } deriving (Show, Generic)
-instance FromJSON QueryRes_
+
+instance FromJSON QueryRes_ where
+    parseJSON (Object v) = do
+        _total <- v .: "total"
+        _issues <- v .: "issues"
+        return $ QueryRes_ _total (map jsiGetIssue _issues)
+    parseJSON a = typeMismatch "Expecting JSON object for JsIssue" a
+
 
 query :: Options -> IO [Issue]
 query opts = case optQueryString opts of
@@ -36,7 +45,7 @@ query opts = case optQueryString opts of
             _query :: Int -> Manager -> ResourceT IO [Issue]
             _query fetched manager = do
                 resBody <- liftM  responseBody $ httpLbs req manager
-                case _decode resBody of
+                case _decode resBody of 
                     Left  e     -> fail $ "Error decoding response body : " ++ e
                     Right qr    -> let  is = issues qr
                                         totalFetched = length is + fetched
