@@ -18,6 +18,7 @@ module JiraTypes   ( Attachment(..)
                     , decodeIssue
                     , decodeIssueResponse
                     , jiraTypesTestGroup
+                    , JsIssue(..)
                     ) where
 
 import GHC.Generics
