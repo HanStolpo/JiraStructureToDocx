@@ -1,7 +1,7 @@
 -- Blah blah
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse#-}
 
-module JiraStructureToIssueHierarchy (fetchHierarchy, localizeImages) where
+module JiraStructureToIssueHierarchy (fetchHierarchy, localizeImages, forestToHierarchy, decodeForest, Forest(..)) where
 
 import Network.HTTP.Conduit
 import Network.HTTP.Types.Status
@@ -37,7 +37,6 @@ import ImageStripper
 import ProgramOptions
 import JiraTypes
 import Query
-import Utility
  
 fetchHierarchy :: Options -> IO ()
 fetchHierarchy opts = withSocketsDo $ runResourceT $ do
@@ -178,7 +177,8 @@ forestToHierarchyIssue :: (MonadBaseControl IO m, MonadResource m) =>
                           -> m IssueHierarchy
 forestToHierarchyIssue manager usrn pwd baseUrl forest i = do
     let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
-    let req =  applyBasicAuth  usrn pwd  (fromJust $ parseUrl url)
+        req' =  applyBasicAuth  usrn pwd  (fromJust $ parseUrl url)
+        req = req' {responseTimeout = Just 30000000}
     res <- trace ("fetching " ++ show i) $ httpLbs req manager
     jsIssue <- decodeIssue $ responseBody res
     children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
