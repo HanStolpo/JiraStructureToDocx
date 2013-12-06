@@ -161,9 +161,8 @@ forestToHierarchy :: (MonadBaseControl IO m, MonadResource m) =>
                      -> String
                      -> Forest
                      -> m IssueHierarchy
-forestToHierarchy manager usrn pwd baseUrl forest = do
-    let issueId = ftIssueId forest
-    case issueId of
+forestToHierarchy _ usrn pwd baseUrl forest = withManager $ \ manager -> do
+    case ftIssueId forest of
         Just i -> forestToHierarchyIssue manager usrn pwd baseUrl forest i
         _ -> forestToHierarchyNoIssue manager usrn pwd baseUrl forest
    
