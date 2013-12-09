@@ -11,6 +11,7 @@ import qualified Data.ByteString as B
 import qualified Codec.Binary.UTF8.Generic as BS8
 import qualified Data.Aeson as AS
 import qualified Data.Yaml as YAML
+import qualified Data.Map as M
 import Text.Blaze.Renderer.String
 import System.FilePath
 -- Local imports
@@ -44,7 +45,7 @@ docOptions ::  FilePath -> WriterOptions
 docOptions cd = def {writerUserDataDir = Just cd
                     }
 docMeta ::  Meta
-docMeta = Meta {docTitle = [], docAuthors = [], docDate = []}
+docMeta = Meta M.empty
 
 
 hierarchyToDoc :: IssueHierarchy -> [Block]

@@ -20,6 +20,7 @@ import Control.Monad
 import Data.Maybe
 import Data.Monoid
 import Data.List
+import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Aeson as AS
 import qualified Data.Yaml as YAML
@@ -48,7 +49,7 @@ genStr opts = do
     let bfn = dropExtension . optDocxFile $ opts
         -- _docOptions ::  FilePath -> WriterOptions
         docOptions = def {writerUserDataDir = Just cd}
-        docMeta = Meta {docTitle = [], docAuthors = [], docDate = []}
+        docMeta = Meta M.empty
         pandoc = Pandoc docMeta (_strToDoc strSrc hierarchy setIssues)
     putStrLn "Generating native"
     writeFile (bfn ++ "_Native.txt") $ writeNative docOptions pandoc
@@ -273,7 +274,7 @@ genStd opts = do
     let bfn = dropExtension . optDocxFile $ opts
         -- _docOptions ::  FilePath -> WriterOptions
         docOptions = def {writerUserDataDir = Just cd}
-        docMeta = Meta {docTitle = [], docAuthors = [], docDate = []}
+        docMeta = Meta M.empty
         pandoc = Pandoc docMeta (_stdToDoc stdSrc hierarchy)
     putStrLn "Generating native"
     writeFile (bfn ++ "_Native.txt") $ writeNative docOptions pandoc

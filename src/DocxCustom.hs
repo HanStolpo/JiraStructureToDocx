@@ -33,8 +33,10 @@ module DocxCustom ( writeDocxCustom ) where -- module Text.Pandoc.Writers.Docx (
 import Data.List ( intercalate, groupBy )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Map as M
 import qualified Text.Pandoc.UTF8 as UTF8
+import Data.Monoid ((<>))
 import Codec.Archive.Zip
 import Data.Time.Clock.POSIX
 import Text.Pandoc.Definition
@@ -44,6 +46,7 @@ import Text.Pandoc.Shared hiding (Element)
 import Text.Pandoc.Options
 import Text.Pandoc.Readers.TeXMath
 import Highlighting ( highlight )
+import Text.Pandoc.Walk
 import Text.Highlighting.Kate.Types ()
 import Text.XML.Light
 import Text.TeXMath
@@ -53,8 +56,9 @@ import Data.Unique (hashUnique, newUnique)
 import System.Random (randomRIO)
 import Text.Printf (printf)
 import qualified Control.Exception as E
+import MIME (getMimeType, extensionFromMimeType)
+import Control.Applicative ((<|>))
 import System.FilePath (takeExtension)
-import MIME (getMimeType)
 
 data WriterState = WriterState{
          stTextProperties :: [Element]
@@ -90,9 +94,6 @@ defaultWriterState = WriterState{
 
 type WS a = StateT WriterState IO a
 
-showTopElement' :: Element -> String
-showTopElement' x = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" ++ showElement x
-
 mknode :: Node t => String -> [(String,String)] -> t -> Element
 mknode s attrs =
   add_attrs (map (\(k,v) -> Attr (unqual k) v) attrs) . node (unqual s)
@@ -100,18 +101,23 @@ mknode s attrs =
 toLazy :: B.ByteString -> BL.ByteString
 toLazy = BL.fromChunks . (:[])
 
+renderXml :: Element -> BL.ByteString
+renderXml elt = BL8.pack "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" <>
+  UTF8.fromStringLazy (showElement elt)
+
 -- | Produce an Docx file from a Pandoc document.
 writeDocxCustom :: WriterOptions  -- ^ Writer options
           -> Pandoc         -- ^ Document to convert
           -> IO BL.ByteString
-writeDocxCustom opts doc@(Pandoc (Meta tit auths date) _) = do
+writeDocxCustom opts doc@(Pandoc meta _) = do
   let datadir = writerUserDataDir opts
+  let doc' = walk fixDisplayMath doc
   refArchive <- liftM (toArchive . toLazy) $
        case writerReferenceDocx opts of
              Just f  -> B.readFile f
              Nothing -> readDataFile datadir "reference.docx"
 
-  ((contents, footnotes), st) <- runStateT (writeOpenXML opts{writerWrapText = False} doc)
+  ((contents, footnotes), st) <- runStateT (writeOpenXML opts{writerWrapText = False} doc')
                        defaultWriterState
   epochtime <- floor `fmap` getPOSIXTime
   let imgs = M.elems $ stImages st
@@ -155,7 +161,7 @@ writeDocxCustom opts doc@(Pandoc (Meta tit auths date) _) = do
               [("Extension","rels"),("ContentType","application/vnd.openxmlformats-package.relationships+xml")] ()]
   let contentTypesDoc = mknode "Types" [("xmlns","http://schemas.openxmlformats.org/package/2006/content-types")] $ defaultnodes ++ overrides
   let contentTypesEntry = toEntry "[Content_Types].xml" epochtime
-        $ UTF8.fromStringLazy $ showTopElement' contentTypesDoc
+        $ renderXml contentTypesDoc
 
   -- word/_rels/document.xml.rels
   let toBaseRel (url', id', target') = mknode "Relationship"
@@ -190,34 +196,34 @@ writeDocxCustom opts doc@(Pandoc (Meta tit auths date) _) = do
   let linkrels = map toLinkRel $ M.toList $ stExternalLinks st
   let reldoc = mknode "Relationships" [("xmlns","http://schemas.openxmlformats.org/package/2006/relationships")] $ baserels ++ imgrels ++ linkrels
   let relEntry = toEntry "word/_rels/document.xml.rels" epochtime
-        $ UTF8.fromStringLazy $ showTopElement' reldoc
+        $ renderXml reldoc
 
   -- create entries for images in word/media/...
   let toImageEntry (_,path,_,_,img) = toEntry ("word/" ++ path) epochtime $ toLazy img
   let imageEntries = map toImageEntry imgs
 
   -- word/document.xml
-  let contentEntry = toEntry "word/document.xml" epochtime $ UTF8.fromStringLazy $ showTopElement' contents
+  let contentEntry = toEntry "word/document.xml" epochtime $ renderXml contents
 
   -- footnotes
-  let footnotesEntry = toEntry "word/footnotes.xml" epochtime $ UTF8.fromStringLazy $
-        showTopElement' footnotes
+  let footnotesEntry = toEntry "word/footnotes.xml" epochtime $ renderXml footnotes
 
   -- footnote rels
-  let footnoteRelEntry = toEntry "word/_rels/footnotes.xml.rels" epochtime $ UTF8.fromStringLazy $
-        showTopElement' $ mknode "Relationships" [("xmlns","http://schemas.openxmlformats.org/package/2006/relationships")]
+  let footnoteRelEntry = toEntry "word/_rels/footnotes.xml.rels" epochtime
+        $ renderXml $ mknode "Relationships" [("xmlns","http://schemas.openxmlformats.org/package/2006/relationships")]
         $ linkrels
 
   -- styles
   let newstyles = styleToOpenXml $ writerHighlightStyle opts
   let stylepath = "word/styles.xml"
   styledoc <- parseXml refArchive stylepath
-  let styledoc' = styledoc{ elContent = elContent styledoc ++ map Elem newstyles }
-  let styleEntry = toEntry stylepath epochtime $ UTF8.fromStringLazy $ showTopElement' styledoc'
+  let styledoc' = styledoc{ elContent = elContent styledoc ++
+                  [Elem x | x <- newstyles, writerHighlight opts] }
+  let styleEntry = toEntry stylepath epochtime $ renderXml styledoc'
 
   -- construct word/numbering.xml
   let numpath = "word/numbering.xml"
-  numEntry <- (toEntry numpath epochtime . UTF8.fromStringLazy . showTopElement')
+  numEntry <- (toEntry numpath epochtime . renderXml)
                  `fmap` mkNumbering (stNumStyles st) (stLists st)
   let docPropsPath = "docProps/core.xml"
   let docProps = mknode "cp:coreProperties"
@@ -226,26 +232,44 @@ writeDocxCustom opts doc@(Pandoc (Meta tit auths date) _) = do
           ,("xmlns:dcterms","http://purl.org/dc/terms/")
           ,("xmlns:dcmitype","http://purl.org/dc/dcmitype/")
           ,("xmlns:xsi","http://www.w3.org/2001/XMLSchema-instance")]
-          $ mknode "dc:title" [] (stringify tit)
-          : mknode "dcterms:created" [("xsi:type","dcterms:W3CDTF")]
-            (maybe "" id $ normalizeDate $ stringify date)
-          : mknode "dcterms:modified" [("xsi:type","dcterms:W3CDTF")] () -- put current time here
-          : map (mknode "dc:creator" [] . stringify) auths
-  let docPropsEntry = toEntry docPropsPath epochtime $ UTF8.fromStringLazy $ showTopElement' docProps
-  let relsPath = "_rels/.rels"
-  rels <- case findEntryByPath relsPath refArchive of
-                   Just e  -> return $ UTF8.toStringLazy $ fromEntry e
-                   Nothing -> err 57 "could not find .rels/_rels in reference docx"
+          $ mknode "dc:title" [] (stringify $ docTitle meta)
+          : mknode "dc:creator" [] (intercalate "; " (map stringify $ docAuthors meta))
+          : maybe []
+             (\x -> [ mknode "dcterms:created" [("xsi:type","dcterms:W3CDTF")] $ x
+                    , mknode "dcterms:modified" [("xsi:type","dcterms:W3CDTF")] $ x
+                    ]) (normalizeDate $ stringify $ docDate meta)
+  let docPropsEntry = toEntry docPropsPath epochtime $ renderXml docProps
 
-  -- fix .rels/_rels, which can get screwed up when reference.docx is edited by Word
-  let rels' = substitute "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
-                  "http://schemas.openxmlformats.org/officedocument/2006/relationships/metadata/core-properties"
-                  rels
-  let relsEntry = toEntry relsPath epochtime $ UTF8.fromStringLazy rels'
+  let relsPath = "_rels/.rels"
+  let rels = mknode "Relationships" [("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships")]
+        $ map (\attrs -> mknode "Relationship" attrs ())
+        [ [("Id","rId1")
+          ,("Type","http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument")
+          ,("Target","word/document.xml")]
+        , [("Id","rId4")
+          ,("Type","http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties")
+          ,("Target","docProps/app.xml")]
+        , [("Id","rId3")
+          ,("Type","http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties")
+          ,("Target","docProps/core.xml")]
+        ]
+  let relsEntry = toEntry relsPath epochtime $ renderXml rels
+
+  let entryFromArchive path = (toEntry path epochtime . renderXml) `fmap`
+                                parseXml refArchive path
+  docPropsAppEntry <- entryFromArchive "docProps/app.xml"
+  themeEntry <- entryFromArchive "word/theme/theme1.xml"
+  fontTableEntry <- entryFromArchive "word/fontTable.xml"
+  settingsEntry <- entryFromArchive "word/settings.xml"
+  webSettingsEntry <- entryFromArchive "word/webSettings.xml"
 
   -- Create archive
-  let archive = foldr addEntryToArchive refArchive $
-                  contentTypesEntry : relsEntry : contentEntry : relEntry : footnoteRelEntry : numEntry : styleEntry : footnotesEntry : docPropsEntry : imageEntries
+  let archive = foldr addEntryToArchive emptyArchive $
+                  contentTypesEntry : relsEntry : contentEntry : relEntry :
+                  footnoteRelEntry : numEntry : styleEntry : footnotesEntry :
+                  docPropsEntry : docPropsAppEntry : themeEntry :
+                  fontTableEntry : settingsEntry : webSettingsEntry :
+                  imageEntries
   return $ fromArchive archive
 
 styleToOpenXml :: Style -> [Element]
@@ -361,7 +385,12 @@ getNumId = length `fmap` gets stLists
 
 -- | Convert Pandoc document to two OpenXML elements (the main document and footnotes).
 writeOpenXML :: WriterOptions -> Pandoc -> WS (Element, Element)
-writeOpenXML opts (Pandoc (Meta tit auths dat) blocks) = do
+writeOpenXML opts (Pandoc meta blocks) = do
+  let tit = docTitle meta ++ case lookupMeta "subtitle" meta of
+                                  Just (MetaBlocks [Plain xs]) -> LineBreak : xs
+                                  _ -> []
+  let auths = docAuthors meta
+  let dat = docDate meta
   title <- withParaProp (pStyle "Title") $ blocksToOpenXML opts [Para tit | not (null tit)]
   authors <- withParaProp (pStyle "Authors") $ blocksToOpenXML opts
                  [Para (intercalate [LineBreak] auths) | not (null auths)]
@@ -372,7 +401,7 @@ writeOpenXML opts (Pandoc (Meta tit auths dat) blocks) = do
   let blocks' = bottomUp convertSpace $ blocks
   doc' <- blocksToOpenXML opts blocks'
   notes' <- reverse `fmap` gets stFootnotes
-  let meta = title ++ authors ++ date
+  let meta' = title ++ authors ++ date
   let stdAttributes =
             [("xmlns:w","http://schemas.openxmlformats.org/wordprocessingml/2006/main")
             ,("xmlns:m","http://schemas.openxmlformats.org/officeDocument/2006/math")
@@ -383,7 +412,7 @@ writeOpenXML opts (Pandoc (Meta tit auths dat) blocks) = do
             ,("xmlns:a","http://schemas.openxmlformats.org/drawingml/2006/main")
             ,("xmlns:pic","http://schemas.openxmlformats.org/drawingml/2006/picture")
             ,("xmlns:wp","http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing")]
-  let doc = mknode "w:document" stdAttributes $ mknode "w:body" [] (meta ++ doc')
+  let doc = mknode "w:document" stdAttributes $ mknode "w:body" [] (meta' ++ doc')
   let notes = mknode "w:footnotes" stdAttributes notes'
   return (doc, notes)
 
@@ -405,6 +434,7 @@ getUniqueId = liftIO $ (show . (+ 20) . hashUnique) `fmap` newUnique
 -- | Convert a Pandoc block element to OpenXML.
 blockToOpenXML :: WriterOptions -> Block -> WS [Element]
 blockToOpenXML _ Null = return []
+blockToOpenXML opts (Div _ bs) = blocksToOpenXML opts bs
 blockToOpenXML opts (Header lev (ident,_,_) lst) = do
   contents <- withParaProp (pStyle $ "Heading" ++ show lev) $
                blockToOpenXML opts (Para lst)
@@ -418,27 +448,26 @@ blockToOpenXML opts (Header lev (ident,_,_) lst) = do
                                                ,("w:name",bookmarkName)] ()
   let bookmarkEnd = mknode "w:bookmarkEnd" [("w:id", id')] ()
   return $ [bookmarkStart] ++ contents ++ [bookmarkEnd]
-blockToOpenXML opts (Plain lst) = blockToOpenXML opts (Para lst)
+blockToOpenXML opts (Plain lst) = withParaProp (pStyle "Compact")
+  $ blockToOpenXML opts (Para lst)
 -- title beginning with fig: indicates that the image is a figure
 blockToOpenXML opts (Para [Image alt (src,'f':'i':'g':':':tit)]) = do
-  paraProps <- getParaProps
+  paraProps <- getParaProps False
   contents <- inlinesToOpenXML opts [Image alt (src,tit)]
   captionNode <- withParaProp (pStyle "ImageCaption")
                  $ blockToOpenXML opts (Para alt)
   return $ mknode "w:p" [] (paraProps ++ contents) : captionNode
-blockToOpenXML opts (Para lst)
-  | any isDisplayMath lst && not (all isDisplayMath lst) = do
-    -- chop into several paragraphs so each displaymath is its own
-    let lsts = groupBy (\x y -> (isDisplayMath x && isDisplayMath y) ||
-                         not (isDisplayMath x || isDisplayMath y)) lst
-    blocksToOpenXML opts (map Para lsts)
-  | otherwise = do
-    paraProps <- getParaProps
+-- fixDisplayMath sometimes produces a Para [] as artifact
+blockToOpenXML _ (Para []) = return []
+blockToOpenXML opts (Para lst) = do
+    paraProps <- getParaProps $ case lst of
+                                     [Math DisplayMath _] -> True
+                                     _                    -> False
     contents <- inlinesToOpenXML opts lst
     return [mknode "w:p" [] (paraProps ++ contents)]
 blockToOpenXML _ (RawBlock format str)
-  | format == "openxml" = return [ x | Elem x <- parseXML str ]
-  | otherwise           = return []
+  | format == Format "openxml" = return [ x | Elem x <- parseXML str ]
+  | otherwise                  = return []
 blockToOpenXML opts (BlockQuote blocks) =
   withParaProp (pStyle "BlockQuote") $ blocksToOpenXML opts blocks
 blockToOpenXML opts (CodeBlock attrs str) =
@@ -598,12 +627,12 @@ withTextProp d p = do
   popTextProp
   return res
 
-getParaProps :: WS [Element]
-getParaProps = do
+getParaProps :: Bool -> WS [Element]
+getParaProps displayMathPara = do
   props <- gets stParaProperties
   listLevel <- gets stListLevel
   numid <- gets stListNumId
-  let listPr = if listLevel >= 0
+  let listPr = if listLevel >= 0 && not displayMathPara
                   then [ mknode "w:numPr" []
                          [ mknode "w:numId" [("w:val",show numid)] ()
                          , mknode "w:ilvl" [("w:val",show listLevel)] () ]
@@ -637,6 +666,12 @@ formattedString str = do
 inlineToOpenXML :: WriterOptions -> Inline -> WS [Element]
 inlineToOpenXML _ (Str str) = formattedString str
 inlineToOpenXML opts Space = inlineToOpenXML opts (Str " ")
+inlineToOpenXML opts (Span (_,classes,_) ils) = do
+  let off x = withTextProp (mknode x [("w:val","0")] ())
+  ((if "csl-no-emph" `elem` classes then off "w:i" else id) .
+   (if "csl-no-strong" `elem` classes then off "w:b" else id) .
+   (if "csl-no-smallcaps" `elem` classes then off "w:smallCaps" else id))
+   $ inlinesToOpenXML opts ils
 inlineToOpenXML opts (Strong lst) =
   withTextProp (mknode "w:b" [] ()) $ inlinesToOpenXML opts lst
 inlineToOpenXML opts (Emph lst) =
@@ -655,8 +690,8 @@ inlineToOpenXML opts (Strikeout lst) =
   $ inlinesToOpenXML opts lst
 inlineToOpenXML _ LineBreak = return [br]
 inlineToOpenXML _ (RawInline f str)
-  | f == "openxml" = return [ x | Elem x <- parseXML str ]
-  | otherwise      = return []
+  | f == Format "openxml" = return [ x | Elem x <- parseXML str ]
+  | otherwise            = return []
 inlineToOpenXML opts (Quoted quoteType lst) =
   inlinesToOpenXML opts $ [Str open] ++ lst ++ [Str close]
     where (open, close) = case quoteType of
@@ -668,15 +703,18 @@ inlineToOpenXML opts (Math mathType str) = do
                        else DisplayInline
   case texMathToOMML displayType str of
         Right r -> return [r]
-        Left  _ -> inlinesToOpenXML opts (readTeXMath str)
+        Left  _ -> inlinesToOpenXML opts (readTeXMath' mathType str)
 inlineToOpenXML opts (Cite _ lst) = inlinesToOpenXML opts lst
-inlineToOpenXML _ (Code attrs str) =
+inlineToOpenXML opts (Code attrs str) =
   withTextProp (rStyle "VerbatimChar")
-  $ case highlight formatOpenXML attrs str of
-         Nothing  -> intercalate [br]
-                     `fmap` (mapM formattedString $ lines str)
-         Just h   -> return h
-     where formatOpenXML _fmtOpts = intercalate [br] . map (map toHlTok)
+  $ if writerHighlight opts
+       then case highlight formatOpenXML attrs str of
+             Nothing  -> unhighlighted
+             Just h   -> return h
+       else unhighlighted
+     where unhighlighted = intercalate [br] `fmap`
+                             (mapM formattedString $ lines str)
+           formatOpenXML _fmtOpts = intercalate [br] . map (map toHlTok)
            toHlTok (toktype,tok) = mknode "w:r" []
                                      [ mknode "w:rPr" []
                                        [ rStyle $ show toktype ]
@@ -687,7 +725,7 @@ inlineToOpenXML opts (Note bs) = do
   let notemarker = mknode "w:r" []
                    [ mknode "w:rPr" [] (rStyle "FootnoteRef")
                    , mknode "w:footnoteRef" [] () ]
-  let notemarkerXml = RawInline "openxml" $ ppElement notemarker
+  let notemarkerXml = RawInline (Format "openxml") $ ppElement notemarker
   let insertNoteRef (Plain ils : xs) = Plain (notemarkerXml : ils) : xs
       insertNoteRef (Para ils  : xs) = Para  (notemarkerXml : ils) : xs
       insertNoteRef xs               = Para [notemarkerXml] : xs
@@ -726,14 +764,13 @@ inlineToOpenXML opts (Image alt (src, tit)) = do
   case M.lookup src imgs of
     Just (_,_,_,elt,_) -> return [elt]
     Nothing -> do
-      let sourceDir = writerSourceDirectory opts
-      res <- liftIO $ E.try $ fetchItem sourceDir src
+      res <- liftIO $ fetchItem (writerSourceURL opts) src
       case res of
         Left (_ :: E.SomeException) -> do
           liftIO $ warn $ "Could not find image `" ++ src ++ "', skipping..."
           -- emit alt text
           inlinesToOpenXML opts alt
-        Right (img, _) -> do
+        Right (img, mt) -> do
           ident <- ("rId"++) `fmap` getUniqueId
           let size = imageSize img
           let (xpt,ypt) = maybe (120,120) sizeInPoints size
@@ -772,18 +809,21 @@ inlineToOpenXML opts (Image alt (src, tit)) = do
                   , mknode "wp:effectExtent" [("b","0"),("l","0"),("r","0"),("t","0")] ()
                   , mknode "wp:docPr" [("descr",tit),("id","1"),("name","Picture")] ()
                   , graphic ]
-          let imgext = case imageType img of
-                             Just Png  -> ".png"
-                             Just Jpeg -> ".jpeg"
-                             Just Gif  -> ".gif"
-                             Just Pdf  -> ".pdf"
-                             Nothing   -> takeExtension src
+          let imgext = case mt >>= extensionFromMimeType of
+                            Just x    -> '.':x
+                            Nothing   -> case imageType img of
+                                              Just Png  -> ".png"
+                                              Just Jpeg -> ".jpeg"
+                                              Just Gif  -> ".gif"
+                                              Just Pdf  -> ".pdf"
+                                              Just Eps  -> ".eps"
+                                              Nothing   -> ""
           if null imgext
              then -- without an extension there is no rule for content type
                inlinesToOpenXML opts alt -- return alt to avoid corrupted docx
              else do
                let imgpath = "media/" ++ ident ++ imgext
-               let mbMimeType = getMimeType imgpath
+               let mbMimeType = mt <|> getMimeType imgpath
                -- insert mime type to use in constructing [Content_Types].xml
                modify $ \st -> st{ stImages =
                    M.insert src (ident, imgpath, mbMimeType, imgElt, img)
@@ -791,8 +831,7 @@ inlineToOpenXML opts (Image alt (src, tit)) = do
                return [imgElt]
 
 br :: Element
-{-br = mknode "w:r" [] [mknode "w:cr" [] () ]-}
-br = mknode "w:r" [] [mknode "w:br" [] () ]
+br = mknode "w:r" [] [mknode "w:br" [("w:type","textWrapping")] () ]
 
 parseXml :: Archive -> String -> IO Element
 parseXml refArchive relpath =
@@ -803,3 +842,23 @@ parseXml refArchive relpath =
 isDisplayMath :: Inline -> Bool
 isDisplayMath (Math DisplayMath _) = True
 isDisplayMath _                    = False
+
+stripLeadingTrailingSpace :: [Inline] -> [Inline]
+stripLeadingTrailingSpace = go . reverse . go . reverse
+  where go (Space:xs) = xs
+        go xs         = xs
+
+fixDisplayMath :: Block -> Block
+fixDisplayMath (Plain lst)
+  | any isDisplayMath lst && not (all isDisplayMath lst) =
+    -- chop into several paragraphs so each displaymath is its own
+    Div ("",["math"],[]) $ map (Plain . stripLeadingTrailingSpace) $
+       groupBy (\x y -> (isDisplayMath x && isDisplayMath y) ||
+                         not (isDisplayMath x || isDisplayMath y)) lst
+fixDisplayMath (Para lst)
+  | any isDisplayMath lst && not (all isDisplayMath lst) =
+    -- chop into several paragraphs so each displaymath is its own
+    Div ("",["math"],[]) $ map (Para . stripLeadingTrailingSpace) $
+       groupBy (\x y -> (isDisplayMath x && isDisplayMath y) ||
+                         not (isDisplayMath x || isDisplayMath y)) lst
+fixDisplayMath x = x

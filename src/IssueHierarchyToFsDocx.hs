@@ -63,7 +63,7 @@ docOptions ::  FilePath -> WriterOptions
 docOptions cd = def {writerUserDataDir = Just cd
                     }
 docMeta ::  Meta
-docMeta = Meta {docTitle = [], docAuthors = [], docDate = []}
+docMeta = Meta M.empty
 
 matchNoTraceLink :: IssueLink -> Bool
 matchNoTraceLink (Inward s _ _) = s == "not traceable because"
