@@ -43,24 +43,26 @@ data Options = Options  { optOperation          :: Operation
                         , optStrStdFile         :: String
                         , optQueryString        :: Maybe String
                         , optStrStdIssuesFile   :: String
+                        , optUseLinkedIssueAsId :: Maybe String
                         } deriving (Show, Data, Typeable, Generic)
 -- Make Options pretty printable
 instance Out Options
 
 optionsDefault :: Options
-optionsDefault = Options { optOperation         = FetchOnly
-                         , optUsr               = Nothing
-                         , optPwd               = Nothing
-                         , optBaseUrl           = Nothing
-                         , optStructureId       = Nothing
-                         , optHierarchyFile     = "StructureHierarchy.yaml"
-                         , optHierarchySssFile  = Nothing
-                         , optDocxFile          = "Structure.docx"
-                         , optProjectId         = Nothing
-                         , optCycleName         = Nothing
-                         , optStrStdFile        = "StrStd.txt"
-                         , optQueryString       = Nothing
-                         , optStrStdIssuesFile  = "StrStdIssues.txt"
+optionsDefault = Options { optOperation             = FetchOnly
+                         , optUsr                   = Nothing
+                         , optPwd                   = Nothing
+                         , optBaseUrl               = Nothing
+                         , optStructureId           = Nothing
+                         , optHierarchyFile         = "StructureHierarchy.yaml"
+                         , optHierarchySssFile      = Nothing
+                         , optDocxFile              = "Structure.docx"
+                         , optProjectId             = Nothing
+                         , optCycleName             = Nothing
+                         , optStrStdFile            = "StrStd.txt"
+                         , optQueryString           = Nothing
+                         , optStrStdIssuesFile      = "StrStdIssues.txt"
+                         , optUseLinkedIssueAsId    = Nothing
                          }
 
 options :: Options
@@ -72,18 +74,19 @@ options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= n
                                                 , GenDocStd     &= explicit &= name "gen-doc-std"   &= help "Generate the STD given the data previously fetched"
                                                 , GenFs         &= explicit &= name "gen-doc-fs"    &= help "Generate the FS traceability to the SSS"
                                                 ]
-                  , optUsr              = def  &= explicit &= name "usr"                    &= help "user name"
-                  , optPwd              = def  &= explicit &= name "pwd"                    &= help "password"
-                  , optBaseUrl          = def  &= explicit &= name "url"                    &= help "the base URL to the JIRA instance"
-                  , optStructureId      = def  &= explicit &= name "sid"                    &= help "the ID of the JIRA structure"
-                  , optHierarchyFile    = defH &= explicit &= name "hierarchy-file"         &= help "the name of the hierarchy file that will be used" &= opt defH
-                  , optHierarchySssFile = def  &= explicit &= name "sss-hierarchy-file"     &= help "when generating the FS traceability then the SSS hierarchy needs to be supplied too"
-                  , optDocxFile         = defD &= explicit &= name "document-file"          &= help "the name of the document file that will be generated" &= opt defD
-                  , optProjectId        = def  &= explicit &= name "projid"                 &= help "the ID of the JIRA project"
-                  , optCycleName        = def  &= explicit &= name "cycle-name"             &= help "the name of the Zephyr test cycle"
-                  , optStrStdFile       = defS &= explicit &= name "str-std-file"           &= help "the name of the file contains or will contain the STR STD data" &= opt defS 
-                  , optQueryString      = def  &= explicit &= name "query"                  &= help "optional jira query to filter document structure generation"
-                  , optStrStdIssuesFile = defS &= explicit &= name "str-std-issues-file"    &= help "the set of issue linked to test that are being tested (generated when STD is generated used by STR)" &= opt defS 
+                  , optUsr                  = def  &= explicit &= name "usr"                        &= help "user name"
+                  , optPwd                  = def  &= explicit &= name "pwd"                        &= help "password"
+                  , optBaseUrl              = def  &= explicit &= name "url"                        &= help "the base URL to the JIRA instance"
+                  , optStructureId          = def  &= explicit &= name "sid"                        &= help "the ID of the JIRA structure"
+                  , optHierarchyFile        = defH &= explicit &= name "hierarchy-file"             &= help "the name of the hierarchy file that will be used" &= opt defH
+                  , optHierarchySssFile     = def  &= explicit &= name "sss-hierarchy-file"         &= help "when generating the FS traceability then the SSS hierarchy needs to be supplied too"
+                  , optDocxFile             = defD &= explicit &= name "document-file"              &= help "the name of the document file that will be generated" &= opt defD
+                  , optProjectId            = def  &= explicit &= name "projid"                     &= help "the ID of the JIRA project"
+                  , optCycleName            = def  &= explicit &= name "cycle-name"                 &= help "the name of the Zephyr test cycle"
+                  , optStrStdFile           = defS &= explicit &= name "str-std-file"               &= help "the name of the file contains or will contain the STR STD data" &= opt defS 
+                  , optQueryString          = def  &= explicit &= name "query"                      &= help "optional jira query to filter document structure generation"
+                  , optStrStdIssuesFile     = defS &= explicit &= name "str-std-issues-file"        &= help "the set of issue linked to test that are being tested (generated when STD is generated used by STR)" &= opt defS 
+                  , optUseLinkedIssueAsId   = def  &= explicit &= name "use-linked-issue-as-id"     &= help "use ID of the issue linked through the named relationship for the issue ID instead of its actual ID" 
                   } &= program "JiraStructureToDocX"
             where
                 defH = optHierarchyFile optionsDefault

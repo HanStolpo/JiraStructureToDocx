@@ -15,6 +15,9 @@ module JiraTypes   ( Attachment(..)
                     , Issue(..)
                     , defIssue
                     , IssueLink(..)
+                    , issueLinkDescription
+                    , issueLinkKey
+                    , issueLinkId
                     , decodeIssue
                     , decodeIssueResponse
                     , jiraTypesTestGroup
@@ -33,7 +36,7 @@ import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.Framework.TH
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)     -- only import string instances for overloaded strings
-import qualified Data.ByteString as BS
+--import qualified Data.ByteString as BS
 import Control.Applicative((<$>), (<*>), (<|>))
 import Control.Monad
 import Data.Default
@@ -84,6 +87,18 @@ data IssueLink = Outward String Int String | Inward String Int String -- Directi
 instance Out IssueLink
 instance AS.ToJSON IssueLink 
 instance AS.FromJSON IssueLink 
+
+issueLinkDescription :: IssueLink -> String
+issueLinkDescription (Outward d _ _) = d
+issueLinkDescription (Inward d _ _) = d
+
+issueLinkKey :: IssueLink -> String
+issueLinkKey (Outward _ _ k) = k
+issueLinkKey (Inward _ _ k) = k
+
+issueLinkId :: IssueLink -> Int
+issueLinkId (Outward _ i _) = i
+issueLinkId (Inward _ i _) = i
 
 -- proxy type to handle parsing jira response
 newtype JsIssueLink = JsIssueLink {jsiGetIssueLink :: IssueLink} deriving (Eq, Show, Read, Generic)
