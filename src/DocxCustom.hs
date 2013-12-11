@@ -58,7 +58,7 @@ import Text.Printf (printf)
 import qualified Control.Exception as E
 import MIME (getMimeType, extensionFromMimeType)
 import Control.Applicative ((<|>))
-import System.FilePath (takeExtension)
+-- import System.FilePath (takeExtension)
 
 data WriterState = WriterState{
          stTextProperties :: [Element]
