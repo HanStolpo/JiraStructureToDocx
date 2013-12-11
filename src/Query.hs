@@ -1,5 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, QuasiQuotes
-    , DeriveGeneric, RankNTypes, OverloadedStrings, NamedFieldPuns, RecordWildCards#-}
+{-# LANGUAGE FlexibleContexts, QuasiQuotes, DeriveGeneric, RankNTypes, OverloadedStrings, NamedFieldPuns, RecordWildCards#-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 
 module Query  (query
@@ -8,6 +7,7 @@ module Query  (query
               ,linkIssues
               ,createIssue
               ,fillStructure
+              ,updateIssueDescription
               ) where
 
 import Network.HTTP.Conduit
@@ -25,9 +25,10 @@ import Control.Monad
 import Control.Monad.Trans.Resource
 import Control.Applicative
 import Network.Socket(withSocketsDo)
+import Safe
 -- import Debug.Trace
 import Text.RawString.QQ
-import Control.Monad.IO.Class
+{-import Control.Monad.IO.Class-}
 -- local files
 import ProgramOptions
 import JiraTypes
@@ -45,6 +46,20 @@ instance FromJSON QueryRes_ where
         return $ QueryRes_ _total (map jsiGetIssue _issues)
     parseJSON a = typeMismatch "Expecting JSON object for JsIssue" a
 
+makeReq ::  Options -> String -> Request m
+makeReq opts urlSuf =  (applyBasicAuth usr pwd . fromJust . parseUrl $ url){responseTimeout = Just 30000000}
+    where
+        usr = pack . fromJust . optUsr $ opts
+        pwd = pack . fromJust . optPwd $ opts
+        baseUrl = fromJust . optBaseUrl $ opts  
+        url = baseUrl ++ urlSuf
+
+makeReqJson :: Options -> String -> String -> Request m
+makeReqJson opts urlSuf bdy = req {requestHeaders = modH . requestHeaders $ req, requestBody = RequestBodyBS . pack $ bdy}
+    where
+        req = makeReq opts urlSuf
+        modH hs = (hContentType, "application/json"):hs
+
 
 -- Run a query defined by optQueryString and return the list of issues
 query :: Options -> IO [Issue]
@@ -52,9 +67,6 @@ query opts = case optQueryString opts of
     Nothing -> return []
     Just qs -> withSocketsDo $ withManager (_query 0)
         where 
-            usr = pack . fromJust . optUsr $ opts
-            pwd = pack . fromJust . optPwd $ opts
-            baseUrl = fromJust . optBaseUrl $ opts  
             _query :: Int -> Manager -> ResourceT IO [Issue]
             _query fetched manager = do
                 resBody <- liftM  responseBody $ httpLbs req manager
@@ -64,9 +76,8 @@ query opts = case optQueryString opts of
                                         totalFetched = length is + fetched
                                         in if totalFetched >= total qr then return is  else (is++) <$> _query totalFetched manager
                 where 
-                    url = baseUrl ++ "/rest/api/2/search?jql=" ++ qs ++ "&startAt=" ++ show (fetched) ++ "&fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003" 
-                    req' = applyBasicAuth  usr pwd $ (fromJust $ parseUrl url)
-                    req = req' {responseTimeout = Just 30000000 }
+                    url = "/rest/api/2/search?jql=" ++ qs ++ "&startAt=" ++ show fetched ++ "&fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003" 
+                    req = makeReq opts url
                     _decode :: ByteString -> Either String QueryRes_
                     _decode = eitherDecode
 
@@ -76,14 +87,9 @@ addLabel :: Options     -- connection options
          -> Issue       -- the issue to which the label will be added
          -> IO Status   -- exception on failure
 addLabel opts l i = withSocketsDo $ withManager $ \manager -> do
-    let usr = pack . fromJust . optUsr $ opts
-        pwd = pack . fromJust . optPwd $ opts
-        baseUrl = fromJust . optBaseUrl $ opts  
-        url = baseUrl ++ "/rest/api/2/issue/" ++ issueKey i
-        req' = applyBasicAuth  usr pwd $ (fromJust $ parseUrl url)
-        req  = req' {method = methodPut, requestHeaders = modH . requestHeaders $ req', requestBody = bdy, responseTimeout = Just 30000000}
-        modH hs = (hContentType, "application/json"):hs
-        bdy = RequestBodyBS . pack $ "{\"update\":{\"labels\":[{\"add\":\"" ++ l ++ "\"}]}}"
+    let url = "/rest/api/2/issue/" ++ issueKey i
+        req = (makeReqJson opts url bdy){method = methodPut}
+        bdy = "{\"update\":{\"labels\":[{\"add\":\"" ++ l ++ "\"}]}}"
     liftM  responseStatus $ httpLbs req manager
     
 
@@ -93,14 +99,9 @@ removeLabel :: Options  -- connection options
          -> Issue       -- the issue to which the label will be removeed
          -> IO Status   -- exception on failure
 removeLabel opts l i = withSocketsDo $ withManager $ \manager -> do
-    let usr = pack . fromJust . optUsr $ opts
-        pwd = pack . fromJust . optPwd $ opts
-        baseUrl = fromJust . optBaseUrl $ opts  
-        url = baseUrl ++ "/rest/api/2/issue/" ++ issueKey i
-        req' = applyBasicAuth  usr pwd $ (fromJust $ parseUrl url)
-        req  = req' {method = methodPut, requestHeaders = modH . requestHeaders $ req', requestBody = bdy, responseTimeout = Just 30000000}
-        modH hs = (hContentType, "application/json"):hs
-        bdy = RequestBodyBS . pack $ "{\"update\":{\"labels\":[{\"remove\":\"" ++ l ++ "\"}]}}"
+    let url = "/rest/api/2/issue/" ++ issueKey i
+        req = (makeReqJson opts url bdy){method = methodPut}
+        bdy = "{\"update\":{\"labels\":[{\"remove\":\"" ++ l ++ "\"}]}}"
     liftM  responseStatus $ httpLbs req manager
 
 
@@ -111,14 +112,9 @@ linkIssues  :: Options     -- connection options
             -> Issue       -- the outward issue of the link relationship (associated with inward description)
             -> IO Status   -- exception on failure
 linkIssues opts t inI outI = withSocketsDo $ withManager $ \manager -> do
-    let usr = pack . fromJust . optUsr $ opts
-        pwd = pack . fromJust . optPwd $ opts
-        baseUrl = fromJust . optBaseUrl $ opts  
-        url = baseUrl ++ "/rest/api/2/issueLink"
-        req' = applyBasicAuth  usr pwd $ (fromJust $ parseUrl url)
-        req  = req' {method = methodPost, requestHeaders = modH . requestHeaders $ req', requestBody = bdy, responseTimeout = Just 30000000}
-        modH hs = (hContentType, "application/json"):hs
-        bdy = RequestBodyBS . pack $ [r| {
+    let url = "/rest/api/2/issueLink"
+        req = (makeReqJson opts url bdy){method = methodPost}
+        bdy = [r| {
             "type": {
                 "name": "|] ++ t ++ [r|"
             },
@@ -156,20 +152,13 @@ createIssue :: Options     -- connection options
             -> Issue       -- data for the issue
             -> IO (String, String)   -- the ID of the created issue exception on failure
 createIssue opts projId issueType i = withSocketsDo $ withManager $ \manager -> do
-    let usr = pack . fromJust . optUsr $ opts
-        pwd = pack . fromJust . optPwd $ opts
-        baseUrl = fromJust . optBaseUrl $ opts  
-        url = baseUrl ++ "/rest/api/2/issue"
-        req' = applyBasicAuth  usr pwd $ (fromJust $ parseUrl url)
-        req  = req' {method = methodPost, requestHeaders = modH . requestHeaders $ req', requestBody = bdy, responseTimeout = Just 30000000}
-        modH hs = (hContentType, "application/json"):hs
-        bdy = RequestBodyBS . pack $ bdy'
-        bdy' =  [r| 
+    let url = "/rest/api/2/issue"
+        req = (makeReqJson opts url bdy){method = methodPost}
+        bdy =  [r| 
                     {
                         "fields": |] ++ unpack (encode (CreateIssue_ (Id_ projId, Id_ issueType, i))) ++ [r|
                     }
                 |]
-    {-liftIO $ putStrLn bdy'-}
     liftM (getCreateRespId . fromJust . decode . responseBody) $ httpLbs req manager
 
 
@@ -180,15 +169,9 @@ fillStructure :: Options        -- connection options
 --fillStructure = undefined
 fillStructure _ _ (IssueHierarchy _ _) = error "fillStructure must be called with the root of the hierarchy"
 fillStructure opts sId h@(IssueHierarchyRoot _) = withSocketsDo $ withManager $ \manager -> do
-    let usr = pack . fromJust . optUsr $ opts
-        pwd = pack . fromJust . optPwd $ opts
-        baseUrl = fromJust . optBaseUrl $ opts  
-        url = baseUrl ++ "/rest/structure/1.0/structure/" ++ sId ++"/forest"
-        req' = applyBasicAuth  usr pwd $ (fromJust $ parseUrl url)
-        req  = req' {method = methodPost, requestHeaders = modH . requestHeaders $ req', requestBody = bdy, responseTimeout = Just 30000000}
-        modH hs = (hContentType, "application/json"):hs
-        bdy = RequestBodyBS . pack $ _fillStuctureJSON h
-    -- liftIO $ putStrLn (_fillStuctureJSON h)
+    let url = "/rest/structure/1.0/structure/" ++ sId ++"/forest"
+        req = (makeReqJson opts url bdy){method = methodPost}
+        bdy = _fillStuctureJSON h
     liftM  responseStatus $ httpLbs req manager
 
 
@@ -215,9 +198,28 @@ _fillStuctureJSON (IssueHierarchyRoot cs) =
                             {
                                 "action":"add",
                                 "issue": |] ++ (show . issueId $ i) ++ [r|,
-                                "under": |] ++ (show u) ++ [r|,
-                                "after": |] ++ (show a) ++ [r|
+                                "under": |] ++ show u ++ [r|,
+                                "after": |] ++ show a ++ [r|
                             }
                         |] ++ sep scs ++ scs
                     scs = fst . foldl addI ("", (issueId i, 0)) $ cs'
 
+
+newtype UpdateIssueDescription_ = UpdateIssueDescription_ Issue
+instance ToJSON UpdateIssueDescription_ where
+    toJSON (UpdateIssueDescription_ Issue {..}) = object ["update" .= update]
+            where
+                update = object ["description" .= [setD]]
+                setD = object ["set" .= fromJustDef "" issueDescription]
+
+-- update the issue's description in jira
+updateIssueDescription  :: Options     -- connection options
+                        -> Issue       -- the issue who's description will be updated in jira
+                        -> IO Status   -- exception on failure
+updateIssueDescription opts i = withSocketsDo $ withManager $ \manager -> do
+    let url = "/rest/api/2/issue/" ++ issueKey i
+        req = (makeReqJson opts url bdy){method = methodPut}
+        bdy =  unpack . encode . UpdateIssueDescription_ $ i
+    {-liftIO $ print req-}
+    {-liftIO $ print bdy-}
+    liftM  responseStatus $ httpLbs req manager
