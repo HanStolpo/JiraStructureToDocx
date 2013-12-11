@@ -1,17 +1,17 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables#-}
 
-module IssueHierarchyToDocx (genDoc) where
+module IssueHierarchyToDocx (genDoc, hierarchyToDoc) where
 
 import Data.Maybe
 import Control.Monad.Error
 import System.Directory
 import Text.Pandoc
 import Text.Pandoc.Builder hiding ((<>))
-import Data.Monoid
+--import Data.Monoid
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.ByteString as B
 import qualified Codec.Binary.UTF8.Generic as BS8
-import qualified Data.Aeson as AS
+--import qualified Data.Aeson as AS
 import qualified Data.Yaml as YAML
 import qualified Data.Map as M
 import Text.Blaze.Renderer.String
