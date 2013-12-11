@@ -125,7 +125,7 @@ validate opts@(Options {optOperation =  GenDocStd}) = _validateGenStrStd opts
 
 validate opts@(Options {optOperation =  GenFs, ..}) = do
     ph <- validateFile optHierarchyFile
-    ph2 <- case optHierarchySssFile of
+    _ <- case optHierarchySssFile of
             Just h -> validateFile h
             Nothing -> fail "For FS expecting a hierarchy file contianing the SSS"
     pd <- canonicalizePath optDocxFile
