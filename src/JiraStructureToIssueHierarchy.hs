@@ -161,7 +161,7 @@ forestToHierarchy :: (MonadBaseControl IO m, MonadResource m) =>
                      -> String
                      -> Forest
                      -> m IssueHierarchy
-forestToHierarchy _ usrn pwd baseUrl forest = withManager $ \ manager -> do
+forestToHierarchy manager usrn pwd baseUrl forest = do
     case ftIssueId forest of
         Just i -> forestToHierarchyIssue manager usrn pwd baseUrl forest i
         _ -> forestToHierarchyNoIssue manager usrn pwd baseUrl forest
@@ -174,10 +174,10 @@ forestToHierarchyIssue :: (MonadBaseControl IO m, MonadResource m) =>
                           -> Forest
                           -> Int
                           -> m IssueHierarchy
-forestToHierarchyIssue manager usrn pwd baseUrl forest i = do
+forestToHierarchyIssue _ usrn pwd baseUrl forest i = withManager $ \manager -> do
     let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
         req' =  applyBasicAuth  usrn pwd  (fromJust $ parseUrl url)
-        req = req' {responseTimeout = Just 30000000}
+        req = req' {responseTimeout = Just 60000000}
     res <- trace ("fetching " ++ show i) $ httpLbs req manager
     jsIssue <- decodeIssue $ responseBody res
     children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
@@ -232,8 +232,8 @@ getImage :: (MonadBaseControl IO m, MonadResource m) =>
             -> FilePath
             -> Image 
             -> m Image
-getImage manager usrn pwd outDir img@(Image _ url _) = do
-    let req = (applyBasicAuth usrn pwd  (fromJust $ parseUrl url)) {checkStatus = \_ _ _ -> Nothing}
+getImage _ usrn pwd outDir img@(Image _ url _) = withManager $ \manager -> do
+    let req = (applyBasicAuth usrn pwd  (fromJust $ parseUrl url)) {checkStatus = \_ _ _ -> Nothing, responseTimeout = Just 60000000}
     res <- http req manager
     if responseStatus res == ok200 
         then do
