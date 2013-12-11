@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables, BangPatterns #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables, BangPatterns #-}
  -- GHC_STATIC_OPTION_i=../src:../testsuite
 module DescriptionParser    ( parseDescription
                             , descriptionParserTests
@@ -28,13 +28,13 @@ data ParseState = PS
         psIgnoreChars :: String,
         psInlineFmtStack :: [(InlFmtRes, MyParser Char)]
     }
-fmtStackToS :: [(InlFmtRes, MyParser Char)] -> String
-fmtStackToS l= "[" ++ (concatMap ((++",") . show . fst) l) ++ "]"
+-- fmtStackToS :: [(InlFmtRes, MyParser Char)] -> String
+-- fmtStackToS l= "[" ++ (concatMap ((++",") . show . fst) l) ++ "]"
 
 defaultParseState :: ParseState
 defaultParseState = PS {psLevel = 0, psDepth = 0, psListPrefix = "", psIgnoreChars = "", psInlineFmtStack = []}
 
-type MyParser = Parsec [Char] ParseState
+type MyParser = Parsec String ParseState
 
 parseDescription :: Int -> String -> [Block]
 -- parseDescription l ds = Para [Str $ filter (\a -> a /= '\r') ds ]
@@ -65,14 +65,14 @@ prsBOL :: MyParser ()
 prsBOL = do
     src <-  getPosition
     let cn = sourceColumn src 
-    if cn == 1 then return () else fail "expecting beginning of line"
+    unless (cn == 1) $ fail "expecting beginning of line"
 
 prsBOF :: MyParser ()
 prsBOF = do
     src <-  getPosition
     let cn = sourceColumn src 
     let ln = sourceLine src 
-    if cn == 1 && ln == 1 then return () else fail "expecting beginning of file"
+    unless (cn == 1 && ln == 1) $ fail "expecting beginning of file"
 
 
 prsBlocks :: MyParser [Block]
@@ -102,7 +102,7 @@ prsIsNotBlockStart :: MyParser ()
 prsIsNotBlockStart = prsNot prsIsBlockStart -- (prsIsBlockStart >> fail "Not expecting block start") <|> (return ())
 
 prsIsBlockStartB :: MyParser Bool
-prsIsBlockStartB = (prsIsBlockStart >> return True) <|> (return False)
+prsIsBlockStartB = (prsIsBlockStart >> return True) <|> return False
 
 prsRestOfLine :: MyParser ()
 prsRestOfLine = optional (blankline <|> (skipSpaces >> prsPassIgnoreChar'))
@@ -124,12 +124,12 @@ prsHdngPfx = do
     return ([h,d,p], C.digitToInt d)
 
 prsHdngPfxS :: MyParser String 
-prsHdngPfxS = (liftM fst) prsHdngPfx
+prsHdngPfxS = liftM fst prsHdngPfx
 
 prsHdng :: MyParser Block
 prsHdng = do
-    l <- liftM psLevel $ getState
-    d <- (liftM snd) prsHdngPfx
+    l <- liftM psLevel getState
+    d <- liftM snd prsHdngPfx
     inls <- prsInlsTillEol >>~ prsRestOfLine
     return $ Header (d + l) nullAttr inls
 
@@ -150,7 +150,7 @@ prsParagraph :: MyParser Block
 prsParagraph = prsInlsTillBlock1 >>= toPara
     where 
         toPara inls = return $ Para $ dropTailSpace inls
-        dropTailSpace inls = reverse . (dropWhile matchSpace) . reverse $ inls
+        dropTailSpace inls = reverse . dropWhile matchSpace . reverse $ inls
         matchSpace Space = True
         matchSpace _     = False
 
@@ -163,8 +163,8 @@ prsLstContent = many (choice $ map try [prsNumberedList, prsBulletList, prsParag
 
 prsBulletList :: MyParser Block
 prsBulletList = do
-    let prsPrefix = (\pfx -> oneOfStrings [ pfx ++ "*", pfx ++ "-" ] >>~ spaceChar >>~ skipSpaces)
-    let maker = BulletList  
+    let prsPrefix pfx = oneOfStrings [ pfx ++ "*", pfx ++ "-" ] >>~ spaceChar >>~ skipSpaces
+        maker = BulletList  
     prsAnyListList maker prsPrefix
 
 getListFmt :: MyParser ListNumberStyle
@@ -181,8 +181,8 @@ getListFmt = do
 prsNumberedList :: MyParser Block
 prsNumberedList = do
     lstFmt <- getListFmt
-    let prsPrefix = (\pfx -> string ( pfx ++ "#") >>~ spaceChar >>~ skipSpaces)
-    let maker = OrderedList (1, lstFmt, DefaultDelim)  
+    let prsPrefix pfx = string ( pfx ++ "#") >>~ spaceChar >>~ skipSpaces
+        maker = OrderedList (1, lstFmt, DefaultDelim)  
     prsAnyListList maker prsPrefix
 
 prsAnyListList :: ([[Block]] -> Block) -> (String -> MyParser String) ->  MyParser Block
@@ -191,7 +191,7 @@ prsAnyListList maker prsPrefix = do
     prsBOL
     -- bail out of prsLstContent
     bStop <- prsStopList2
-    if bStop then fail "" else return ()
+    when bStop $ fail "" 
     -- Read list starter and set list prefix if successful
     ps <- getState
     let pfx =  psListPrefix ps
@@ -211,17 +211,17 @@ prsAnyListList maker prsPrefix = do
         _prsList prsPrefix'' bss' = do
             -- get the list content 
             bss'' <- prsLstContent
-            c <- optionMaybe $ lookAhead $ try $ prsPrefix''
+            c <- optionMaybe $ lookAhead $ try prsPrefix''
             case c of
                  -- It does not match so return current content
                  Nothing -> return $  bss' ++ [bss'']
                  -- It does match consume start and then call self to get contetn
-                 Just _ -> prsPrefix'' >> (_prsList prsPrefix'' $ bss' ++ [bss''])
+                 Just _ -> prsPrefix'' >> _prsList prsPrefix''  (bss' ++ [bss''])
 
 prsListPfxDepth :: MyParser Bool
 prsListPfxDepth = do
-    let prsPrefix = (many1 $ oneOfStrings [ "#", "*", "-" ]) >>~ spaceChar
-    r <- optionMaybe $ lookAhead $ try $ prsPrefix
+    let prsPrefix = many1 (oneOfStrings [ "#", "*", "-" ]) >>~ spaceChar
+    r <- optionMaybe $ lookAhead $ try prsPrefix
     case r of
         Nothing -> return False
         Just pfx -> do
@@ -232,7 +232,7 @@ prsListPfxDepth = do
 
 prsBlankLines :: MyParser Bool
 prsBlankLines = do
-    r <- optionMaybe $ lookAhead $ try $ blanklines
+    r <- optionMaybe $ lookAhead $ try blanklines
     case r of
         Nothing -> return False
         Just s -> return $ length s > 1
@@ -256,8 +256,8 @@ prsTable = do
     hdr <- prsTableHdr
     prsRestOfLine
     rows <-  many prsTableRows
-    let aln = map (\_->AlignLeft) hdr
-    let colw = map (\_->0) hdr
+    let aln = map (const AlignLeft) hdr
+    let colw = map (const 0) hdr
     let cap = [Str ""]
     return $  Table cap aln colw hdr rows
 
@@ -270,7 +270,7 @@ prsTableHdrStartS = do
 prsTableHdr :: MyParser [TableCell]
 prsTableHdr = do
     _ <- prsTableHdrStartS
-    updateState (\ps -> ps {psIgnoreChars =  '|':(psIgnoreChars ps)}) 
+    updateState (\ps -> ps {psIgnoreChars =  '|':psIgnoreChars ps}) 
     r <- endBy1 prsTableContent $ string "||"
     updateState (\ps -> let (_:is) = psIgnoreChars ps in ps {psIgnoreChars = is }) 
     return r
@@ -278,14 +278,14 @@ prsTableHdr = do
 
 prsTableRowsStartS :: MyParser String
 prsTableRowsStartS = do
-    i <- liftM (psIgnoreChars) getState
+    i <- liftM psIgnoreChars getState
     case i of
-        '|':_ -> ((newline >> return ()) <|> prsBOL) >> skipSpaces >> string "|"
+        '|':_ -> (void newline <|> prsBOL) >> skipSpaces >> string "|"
         _ -> fail "Not inside table" >> return ""
 
 prsTableCellStartS :: MyParser String
 prsTableCellStartS = do
-    i <- liftM (psIgnoreChars) getState
+    i <- liftM psIgnoreChars getState
     case i of
         '|':_ -> string "|"
         _ -> fail "Not inside table" >> return ""
@@ -294,24 +294,24 @@ prsTableRows :: MyParser [TableCell]
 prsTableRows = do
     prsBOL
     _ <- skipSpaces >> string "|"
-    updateState (\ps -> ps {psIgnoreChars =  '|':(psIgnoreChars ps)}) 
+    updateState (\ps -> ps {psIgnoreChars =  '|':psIgnoreChars ps}) 
     cs <- many1 (prsInlsTillEol >>~ string "|")
     updateState (\ps -> let (_:is) = psIgnoreChars ps in ps {psIgnoreChars = is }) 
-    optional( blankline )
-    return ( map ((:[]) . Para) $ cs )
+    optional blankline 
+    return ( map ((:[]) . Para) cs )
     
     
 ---------------------------------------------------------------------------------------------
 -- Inline parsing
 ---------------------------------------------------------------------------------------------
 addLineBreakBeforeAfterImages :: [Inline] -> MyParser [Inline]
-addLineBreakBeforeAfterImages ls = return $ foldr f [] $ ls
+addLineBreakBeforeAfterImages ls = return $ foldr f [] ls
     where
         f img@(Image _ _) ls' = LineBreak : img : LineBreak : ls'
         f l ls' = l : ls'
 
 prsInlsTillEol :: MyParser [Inline]
-prsInlsTillEol =  (many  (prsFailIgnoreChar >> choice prsInlineOrder) ) >>= addLineBreakBeforeAfterImages
+prsInlsTillEol =  many (prsFailIgnoreChar >> choice prsInlineOrder)  >>= addLineBreakBeforeAfterImages
 {-prsInlsTillEol1 = (many1  (prsFailIgnoreChar >> choice prsInlineOrder) ) >>= addLineBreakBeforeAfterImages-}
 
 prsInlineOrder :: [MyParser Inline]
@@ -326,7 +326,7 @@ prsInlineOrder2 = map try [ prsLongDash, prsMediumDash, prsEmph, prsStrong, prsC
                           ]
 
 prsInlsTillBlock :: MyParser [Inline]
-prsInlsTillBlock = (liftM reverse $ prsInlsTillBlock1' []) >>= addLineBreakBeforeAfterImages
+prsInlsTillBlock = liftM reverse (prsInlsTillBlock1' []) >>= addLineBreakBeforeAfterImages
     where 
         prsInlsTillBlock1' ils = do
             stop <-  prsIsBlockStartB
@@ -336,8 +336,7 @@ prsInlsTillBlock = (liftM reverse $ prsInlsTillBlock1' []) >>= addLineBreakBefor
                             ((InlFmtBussy _,_):_)  ->  False
                             _ -> True
             if stop || fmtEnd
-                then do 
-                    return ils
+                then return ils
                 else do 
                     prsFailIgnoreChar
                     !il <- choice prsInlineOrder2
@@ -381,7 +380,7 @@ prsAnyChar = do
 prsFailIgnoreChar' :: MyParser Char
 prsFailIgnoreChar' = do
     ignr <- liftM psIgnoreChars getState
-    lookAhead $ try $  satisfy (\c -> not $ elem c ignr)
+    lookAhead $ try $  satisfy (`notElem` ignr)
 
 prsFailIgnoreChar :: MyParser ()
 prsFailIgnoreChar = do
@@ -391,7 +390,7 @@ prsFailIgnoreChar = do
 prsPassIgnoreChar' :: MyParser Char
 prsPassIgnoreChar' = do
     ignr <- liftM psIgnoreChars getState
-    lookAhead $ try $  satisfy (\c -> elem c ignr)
+    lookAhead $ try $  satisfy (`notElem` ignr)
 
 -- spaces
 prsInlSpaceC :: MyParser Char
@@ -399,36 +398,36 @@ prsInlSpaceC = do
     st <- getState
     case psInlineFmtStack st of
         [] -> satisfy chk
-        ((InlFmtBussy _,f):_) -> (do c <- f; if chk c then return c else fail "")
+        (InlFmtBussy _,f):_ -> do c <- f; if chk c then return c else fail ""
         _ -> fail ""
     where 
-        chk c = C.isSpace c && (not . elem c $ "\n\r")
+        chk c = C.isSpace c && notElem c "\n\r"
 
 prsInlSpaceS :: MyParser String
 prsInlSpaceS = do
     st <- getState
     case psInlineFmtStack st of
-        [] -> many1 . try $ (satisfy chk)
-        ((InlFmtBussy _,f):_) ->  (many1 . try $ do
+        [] -> many1 . try $ satisfy chk
+        (InlFmtBussy _,f):_ ->  many1 . try $ do
                         c <- f
-                        if chk c then return c else fail "")
-        _ -> fail "prsInlSpace failed" ""
+                        if chk c then return c else fail ""
+        _ -> fail "prsInlSpace failed" (""::String)
     where 
-        chk c = C.isSpace c && (not . elem c $ "\n\r")
+        chk c = C.isSpace c && notElem c "\n\r"
                     
 prsInlSpace :: MyParser Inline
-prsInlSpace =  prsInlSpaceS >> (return Space) 
+prsInlSpace =  prsInlSpaceS >> return Space 
 
 prsSpaceNotAtEol :: MyParser Inline
-prsSpaceNotAtEol = prsInlSpace >>~ notFollowedBy' (eof <|> (newline >> return ()))
+prsSpaceNotAtEol = prsInlSpace >>~ notFollowedBy' (eof <|> void newline)
 
 prsSpaceTillBlock :: MyParser Inline
 prsSpaceTillBlock = many1 ( prsIsNotBlockStart >> (prsInlSpaceC <|> newline) ) >> return Space
 
 prsNot :: MyParser a -> MyParser ()
 prsNot p = do
-    matched <- lookAhead . try $ (p >> return True) <|> (return False)
-    if matched then fail "" else return ()
+    matched <- lookAhead . try $ (p >> return True) <|> return False
+    when matched $ fail ""
 
 prsNotEol :: MyParser Char
 prsNotEol = prsAnyChar >>~ notFollowedBy newline
@@ -444,7 +443,7 @@ prsInlFmt t fmt s = do
         Just _ ->  fail ""
     prsNot $ char '\\'
     string s >> notFollowedBy space
-    setState $ st {psInlineFmtStack = ((InlFmtBussy t,  try ep <|> try bp <|> prsEscChar) : (psInlineFmtStack st))}
+    setState $ st {psInlineFmtStack = (InlFmtBussy t,  try ep <|> try bp <|> prsEscChar) : psInlineFmtStack st}
     inls <- try prsInlsTillBlock1
     stR <- getState
     modifyState (\st' -> st'{psInlineFmtStack = psInlineFmtStack st})
@@ -460,7 +459,7 @@ prsInlFmt t fmt s = do
            c <- prsEscChar >>~ string s
            modifyState (\st -> case psInlineFmtStack  st of
                                 [] -> error "prsInlFmt - stack missmatch"
-                                ((InlFmtBussy tp,f):t) -> st {psInlineFmtStack =  ((InlFmtPassed tp, f):t)}
+                                ((InlFmtBussy tp,f):t'') -> st {psInlineFmtStack =  (InlFmtPassed tp, f):t''}
                                 _ -> st)
            return c
         bp :: MyParser Char
@@ -469,7 +468,7 @@ prsInlFmt t fmt s = do
            c <- prsEscChar 
            modifyState (\st -> case psInlineFmtStack st of
                                 [] -> error "prsInlFmt - stack missmatch"
-                                ((InlFmtBussy tp,f):t) -> st {psInlineFmtStack =  ((InlFmtFailed tp, f):t)}
+                                ((InlFmtBussy tp,f):t'') -> st {psInlineFmtStack =  (InlFmtFailed tp, f):t''}
                                 _ -> st)
            return c
 
@@ -512,7 +511,7 @@ prsMonoSpaced = do
 
 -- \\ line break
 prsLineBreak :: MyParser Inline
-prsLineBreak = string "\\\\" >> notFollowedBy' (string "\\") >> (return $ LineBreak)
+prsLineBreak = string "\\\\" >> notFollowedBy' (string "\\") >> return  LineBreak
 
 
 -- -- medium dash en dash U+2013
@@ -567,12 +566,11 @@ prsImageRaw = do
     where
         _prsLinkAttr = do
             l <- many $ noneOf "|"
-            a <- optionMaybe $ (char '|' >> (many anyChar))
+            a <- optionMaybe (char '|' >> many anyChar)
             return (l,a)
 
 prsImagesRaw :: MyParser [ImageLink]
-prsImagesRaw = do
-    liftM concat $ many $ (liftM (:[]) $ try prsImageRaw) <|> (anyChar >> return [])
+prsImagesRaw = liftM concat $ many $ liftM (:[]) (try prsImageRaw) <|> (anyChar >> return [])
 
 imagesFromDescription :: String -> [ImageLink]
 imagesFromDescription d = 
@@ -596,13 +594,13 @@ replaceImageLinks replacer d =
         pe :: MyParser (Either ImageLink String)
         pe = pImage <|> pText 
             where
-                pImage = liftM Left $ try $ prsImageRaw 
+                pImage = liftM Left $ try prsImageRaw 
                 pText =  liftM Right $ many1 pTextChar
-                pTextChar = (lookAhead $ try $ pNotImage) >> anyChar
+                pTextChar = lookAhead (try pNotImage) >> anyChar
                 pNotImage = prsNot prsImageRaw 
         -- Transform parse results and turn into string again
         collapse :: String -> Either ImageLink String -> String 
-        collapse sAcc (Left iml ) = let ImageLink m as = replacer iml in sAcc ++ "!" ++ m ++ (maybe "" (\a-> "|" ++ a) as) ++ "!"
+        collapse sAcc (Left iml ) = let ImageLink m as = replacer iml in sAcc ++ "!" ++ m ++ maybe "" (\a-> '|' : a) as ++ "!"
         collapse sAcc (Right s) = sAcc ++ s
 
 ----------------------------------------------------------------------------------------
@@ -635,12 +633,12 @@ descriptionParserTests ::  Test
 descriptionParserTests = test
         [   "newline" ~: Right '\n'  ~=? testP newline "\n",
 
-            "prsBOF" ~:  True ~=? (matchError $ testP (anyChar >> prsBOF) "a\n"),
-            "prsBOF 2" ~:  Right () ~=? testP (prsBOF) "a\n",
+            "prsBOF" ~:  True ~=? matchError (testP (anyChar >> prsBOF) "a\n"),
+            "prsBOF 2" ~:  Right () ~=? testP prsBOF "a\n",
 
             "prsEmptyLines" ~: Right Null ~=? testP prsEmptyLines "\n\n",
             "prsEmptyLines 2" ~: Right Null ~=? testP prsEmptyLines "\n \n",
-            "prsEmptyLines 3" ~:  True ~=? (matchError $ testP (anyChar >> prsEmptyLines) "a\n"),
+            "prsEmptyLines 3" ~:  True ~=? matchError (testP (anyChar >> prsEmptyLines) "a\n"),
 
             "prsIsBlockStartB" ~: Right True ~=? testP prsIsBlockStartB "\n\n",
             "prsIsBlockStartB 2" ~: Right True ~=? testP prsIsBlockStartB "\n \n",
@@ -650,7 +648,7 @@ descriptionParserTests = test
             "prsInlsTillBlock1" ~: Right (toList $ text "some text " <> emph "emp") ~=? testP prsInlsTillBlock1 "some text _emp_",
             "prsInlsTillBlock1 2" ~: Right (toList $ text "some text " <> emph "emp") ~=? testP prsInlsTillBlock1 "some text\n_emp_",
             "prsInlsTillBlock1 3" ~: Right (toList $ text "some text") ~=? testP prsInlsTillBlock1 "some text\n\n_emp_",
-            "prsInlsTillBlock1 4" ~: Right ([Str "Henry", Space, Str "the", Space, Str "big", Space, Str "bad", Space, Str "wolf"])
+            "prsInlsTillBlock1 4" ~: Right [Str "Henry", Space, Str "the", Space, Str "big", Space, Str "bad", Space, Str "wolf"]
                           ~=? testP prsInlsTillBlock1 "Henry the\nbig bad \nwolf",
             "prsEndl" ~: Right ()  ~=? testP prsEndl "   \n \n",
             "prsSpaceNotAtEol" ~: Right Space ~=? testP prsSpaceNotAtEol " i",
@@ -674,7 +672,7 @@ descriptionParserTests = test
 
             "Superscript" ~: Right (Superscript [Str "blah"]) ~=? testP prsSuperScript "^blah^",
 
-            "prsInlSpace" ~: Right (Space) ~=? testP prsInlSpace " ",
+            "prsInlSpace" ~: Right Space ~=? testP prsInlSpace " ",
             
             "prsSubScript" ~: Right (Subscript [Str "blah"]) ~=? testP prsSubScript "~blah~",
 
@@ -697,7 +695,7 @@ descriptionParserTests = test
             "prsNumberedList" ~: Right (OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ])
                             ~=? testP prsNumberedList "# Gordon *gordon*\n# Ramsy",
                 
-            "prsNumberedList 2" ~: Right  [(OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ])]
+            "prsNumberedList 2" ~: Right  [OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ]]
                              ~=? testP prsBlocks "# Gordon *gordon*\n# Ramsy",
 
             "prsNumberedList 3" ~: Right [ OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ]  ]
@@ -733,7 +731,7 @@ descriptionParserTests = test
             "imagesFromDescription 1" ~: [ImageLink {imgLink = "bla", imgAttrs = Nothing}] ~=? imagesFromDescription "gordon !bla! ramsy",
             "imagesFromDescription 2" ~: [ImageLink {imgLink = "bla", imgAttrs = Nothing}, ImageLink {imgLink = "ble", imgAttrs = Nothing}] ~=? imagesFromDescription "gordon !bla! ramsy!ble!",
 
-            "replaceImageLinks 1" ~: "gordon !Sally! ramsy" ~=? replaceImageLinks (\_->ImageLink {imgLink = "Sally", imgAttrs = Nothing}) "gordon !bla! ramsy",
+            "replaceImageLinks 1" ~: "gordon !Sally! ramsy" ~=? replaceImageLinks (const ImageLink {imgLink = "Sally", imgAttrs = Nothing}) "gordon !bla! ramsy",
 
             "prsTbl" ~:
                     Right (toList $ header 4 . text <| "Requirements" <>
@@ -787,11 +785,11 @@ descriptionParserTests = test
                 
             "minus no strike through" ~:
                     Right (toList $ para (text "-140 to -70 dBm" <> PB.space <> (strikeout . text $ "strike through")))
-                    ~=? testP prsDesc ("-140 to -70 dBm -strike through-"),
+                    ~=? testP prsDesc "-140 to -70 dBm -strike through-",
 
             "escaped" ~:
                     Right (toList $ para (text "[140 *70*" <> PB.space <> (strong . text $ "dBm-")))
-                    ~=? testP prsDesc ("\\[140 \\*70\\* *dBm\\-*"),
+                    ~=? testP prsDesc "\\[140 \\*70\\* *dBm\\-*",
 
             "dummy end" ~: True ~=? True
         ]
@@ -810,30 +808,31 @@ many1Till p end = do
          rest <- manyTill p end
          return (first:rest)
 -- | Parses a space or tab.
-spaceChar :: Parsec [Char] st Char
+spaceChar :: Parsec String st Char
 spaceChar = satisfy $ \c -> c == ' ' || c == '\t'
 
 -- | Parses a nonspace, nonnewline character.
-nonspaceChar :: Parsec [Char] st Char
-nonspaceChar = satisfy $ \x -> x /= '\t' && x /= '\n' && x /= ' ' && x /= '\r'
+nonspaceChar :: Parsec String st Char
+--nonspaceChar = satisfy $ \x -> x /= '\t' && x /= '\n' && x /= ' ' && x /= '\r'
+nonspaceChar = satisfy (`notElem` "\t\n\r ")
 
 -- | Skips zero or more spaces or tabs.
-skipSpaces :: Parsec [Char] st ()
+skipSpaces :: Parsec String st ()
 skipSpaces = skipMany spaceChar
 
 -- | Skips zero or more spaces or tabs, then reads a newline.
-blankline :: Parsec [Char] st Char
+blankline :: Parsec String st Char
 blankline = try $ skipSpaces >> newline
 
 -- | Parses one or more blank lines and returns a string of newlines.
-blanklines :: Parsec [Char] st [Char]
+blanklines :: Parsec String st String 
 blanklines = many1 blankline
 
 -- | Parses material enclosed between start and end parsers.
-enclosed :: Parsec [Char] st t   -- ^ start parser
-         -> Parsec [Char] st end  -- ^ end parser
-         -> Parsec [Char] st a    -- ^ content parser (to be used repeatedly)
-         -> Parsec [Char] st [a]
+enclosed :: Parsec String st t    -- ^ start parser
+         -> Parsec String st end  -- ^ end parser
+         -> Parsec String st a    -- ^ content parser (to be used repeatedly)
+         -> Parsec String st [a]
 enclosed start end parser = try $
   start >> notFollowedBy space >> many1Till parser end
 
@@ -872,7 +871,7 @@ notFollowedBy' p  = try $ join $  do  a <- try p
                                   return (return ())
 
 
-oneOfStrings' :: (Char -> Char -> Bool) -> [String] -> Parsec [Char] st String
+oneOfStrings' :: (Char -> Char -> Bool) -> [String] -> Parsec String st String
 oneOfStrings' _ []   = fail "no strings"
 oneOfStrings' matches strs = try $ do
   c <- anyChar
@@ -887,5 +886,5 @@ oneOfStrings' matches strs = try $ do
 -- | Parses one of a list of strings.  If the list contains
 -- two strings one of which is a prefix of the other, the longer
 -- string will be matched if possible.
-oneOfStrings :: [String] -> Parsec [Char] st String
+oneOfStrings :: [String] -> Parsec String st String
 oneOfStrings = oneOfStrings' (==)
