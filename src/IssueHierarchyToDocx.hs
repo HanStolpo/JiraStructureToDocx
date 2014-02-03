@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables#-}
+{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables, RecordWildCards#-}
 
 module IssueHierarchyToDocx (genDoc, hierarchyToDoc) where
 
@@ -7,6 +7,10 @@ import Control.Monad.Error
 import System.Directory
 import Text.Pandoc
 import Text.Pandoc.Builder hiding ((<>))
+import Text.Parsec.Char
+import Text.Parsec.Prim hiding ((<|>))
+import Text.Parsec.Combinator
+import Control.Applicative hiding (many)
 --import Data.Monoid
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.ByteString as B
@@ -31,14 +35,11 @@ genDoc opts = do
     putStrLn "Reading issue hierarchy"
     Just hierarchy :: Maybe IssueHierarchy <- liftM YAML.decode $ B.readFile (optHierarchyFile opts)
     putStrLn "Generating pandoc"
-    let pandoc = Pandoc docMeta $ concatMap (hierarchyToDoc idIssue cntPfx) (ihChildren hierarchy)
+    let pandoc = Pandoc docMeta $ concatMap (hierarchyToDoc idIssue cntPfx modDesc) (ihChildren hierarchy)
         bfn = dropExtension . optDocxFile $ opts
-        idIssue = case optUseLinkedIssueAsId opts of
-                        Nothing     -> issueKey
-                        Just lnm    -> idFromLink lnm
-        cntPfx = case optUseLinkedIssueAsId opts of
-                        Nothing     -> const []
-                        Just _      -> realIssueKey
+        (idIssue, cntPfx, modDesc) = case optUseLinkedIssueAsId opts of
+                        Nothing     -> (issueKey, const [], id)
+                        Just lnm    -> (idFromLink lnm, realIssueKey, replaceLinks lnm hierarchy)
     putStrLn "Generating native"
     writeFile (bfn ++ "_Native.txt") $ writeNative (docOptions cd) pandoc
     putStrLn "Generating markdown"
@@ -57,8 +58,8 @@ docMeta ::  Meta
 docMeta = Meta M.empty
 
 
-hierarchyToDoc :: (Issue -> String) -> (Issue -> [Block]) -> IssueHierarchy -> [Block]
-hierarchyToDoc idIssue cntPfx = expndChild 1
+hierarchyToDoc :: (Issue -> String) -> (Issue -> [Block]) -> (String -> String) -> IssueHierarchy -> [Block]
+hierarchyToDoc idIssue cntPfx modDesc = expndChild 1
     where
         expndChild :: Int -> IssueHierarchy -> [Block]
         expndChild l issue = (hdr : cnt) ++ rest 
@@ -71,7 +72,7 @@ hierarchyToDoc idIssue cntPfx = expndChild 1
                 ihSummary (IssueHierarchyRoot _) = ""
                 ihSummary h = issueSummary . ihIssue $ h
                 ihDescription (IssueHierarchyRoot _) = ""
-                ihDescription h = fromMaybe "" . issueDescription . ihIssue $ h
+                ihDescription h = modDesc . fromMaybe "" . issueDescription . ihIssue $ h
                 ihCntPfx (IssueHierarchyRoot _) = []
                 ihCntPfx h = cntPfx . ihIssue $ h
 
@@ -84,3 +85,32 @@ idFromLink lnm i = headNote n . map issueLinkKey . filter f . issueLinks $ i
 
 realIssueKey :: Issue -> [Block]
 realIssueKey i = toList . para . strong . superscript . str $ "JIRA ID : " ++ issueKey i
+
+
+linkMap :: String -> IssueHierarchy -> M.Map String String
+linkMap lnm (IssueHierarchyRoot cs) = M.unions . map (linkMap lnm) $ cs
+linkMap lnm (IssueHierarchy i@(Issue {..}) cs) = M.insert issueKey (idFromLink lnm i) . M.unions . map (linkMap lnm) $ cs
+
+issueKeyPfx :: M.Map String String -> String
+issueKeyPfx m = foldl chk (ext . head $ ks) ks
+    where
+        ks = M.keys m
+        ext s = either (error . ("ext "++). show) id $ parse p s s
+        p = many1 $ choice [letter, char '-']
+        chk s n | s == ext n = s
+                | otherwise = error "inconsistent issue key in remapping [" ++ s ++ "/=" ++ n ++ "]"
+
+
+replaceLinks :: String -> IssueHierarchy -> (String -> String)
+replaceLinks lnm hierarchy = f
+    where
+        m       = linkMap lnm hierarchy
+        ikPfx   = issueKeyPfx m
+        f       = prsRepl m ikPfx
+
+prsRepl :: M.Map String String -> String -> String -> String
+prsRepl m ikPfx s = either (error . ("prsRepl "++) . show) concat (parse p s s)
+    where
+        p = many . choice $ [lnk, txt]
+        txt = manyTill anyChar (lookAhead (void lnk <|> eof)) >>= \txt' -> if null txt' then fail "" else return txt'
+        lnk = try $ fromJustNote "error renaming issue link" . (`M.lookup` m) <$> ((++) <$> string ikPfx <*> many1 digit)
