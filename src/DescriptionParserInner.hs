@@ -1,545 +1,464 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables, BangPatterns #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
  -- GHC_STATIC_OPTION_i=../src:../testsuite
 module DescriptionParserInner where
 
 import qualified Data.Char as C
 import Control.Monad
+import Control.Applicative ((<$>), (<$), (<*>))
+import Control.Arrow
+import Data.Maybe
 import Text.Parsec
+import Text.Parsec.Pos
 import Text.Pandoc
-import Debug.Trace
 import Data.List
 
-data InlFmtType = InlStrong | InlEmph | InlSub | InlSup | InlDel | InlIns deriving (Eq, Show)
-data InlFmtRes = InlFmtBussy InlFmtType | InlFmtPassed InlFmtType| InlFmtFailed InlFmtType deriving (Eq, Show)
+---------------------------------------------------------------------------------------------
+-- debug helpers
+---------------------------------------------------------------------------------------------
+import Debug.Trace
+
+traceMsgS :: Show a => String -> a -> a
+traceMsgS msg a = trace ("\n" ++ msg ++ "{" ++ show a ++ "}") a
+
+traceMS :: Show a => String -> a -> MyParser a
+traceMS msg a = traceM' (msg ++ "{" ++ show a ++ "}") >> return a
+
+traceM :: String -> a -> MyParser a
+traceM msg a = traceM' msg >> return a
+
+traceM' :: String -> MyParser ()
+traceM' msg = getState >>= (\s -> return $! trace ("\n" ++ msg) s) >>= setState
+
+---------------------------------------------------------------------------------------------
+-- Enclosed parsing
+---------------------------------------------------------------------------------------------
 data ParseState = PS
     {
-        psLevel :: Int,
-        psDepth :: Int,
-        psListPrefix :: String,
-        psIgnoreChars :: String,
-        psInlineFmtStack :: [(InlFmtRes, MyParser Char)]
+        psLevel         :: Int,
+        psDepth         :: Int,
+        psListPrefix    :: String,
+        psSkipChars     :: String,
+        psEncStack     :: [EncType],
+        psInlStack      :: [MyParser Inline]
     }
--- fmtStackToS :: [(InlFmtRes, MyParser Char)] -> String
--- fmtStackToS l= "[" ++ (concatMap ((++",") . show . fst) l) ++ "]"
 
 defaultParseState :: ParseState
-defaultParseState = PS {psLevel = 0, psDepth = 0, psListPrefix = "", psIgnoreChars = "", psInlineFmtStack = []}
+defaultParseState = PS {psLevel = 0, psDepth = 0, psListPrefix = "", psSkipChars = "", psEncStack = [], psInlStack = [inlineEol]}
 
 type MyParser = Parsec String ParseState
 
-parseDescription :: Int -> String -> [Block]
--- parseDescription l ds = Para [Str $ filter (\a -> a /= '\r') ds ]
-parseDescription l ds = 
-    case res of
-        Left e -> [RawBlock "" (show e)]
-        Right b -> b
-    where
-        res = runParser prsDesc  defaultParseState {psLevel = l} "Desc" ds
+---------------------------------------------------------------------------------------------
+-- Enclosed parsing
+---------------------------------------------------------------------------------------------
 
-prsDesc :: MyParser [Block]
-prsDesc = liftM (filter noNull) prsBlocks1
-    where
-        noNull Null = False
-        noNull _ = True
-    
--- trace' !msg !s !a  = trace ("\nt-" ++ msg ++ " -> " ++ (show s) ++ "\n") $! a 
--- trace'' !msg !a  = trace' msg a a
-_traceStack :: String -> a -> a
-_traceStack = traceStack
-{-_traceStack s a = a-}
+data EncType = EncStrong | EncEmph | EncSub | EncSup | EncDel | EncIns | EncTable | EncTableCell | EncTableRow | EncList String | EncPara | EncCite | EncMono | EncImage deriving (Show, Eq, Ord)
 
+isInEnc :: EncType -> MyParser Bool
+isInEnc t =  isJust . find (t==) . psEncStack <$> getState
+
+pushEnc :: EncType -> MyParser ()
+pushEnc e = modifyState $ \st -> st {psEncStack = e : psEncStack st}
+
+popEnc :: MyParser ()
+popEnc = modifyState $ \st -> st {psEncStack = pop . psEncStack $ st}
+    where
+        pop [] = []
+        pop (_:es) = es
+
+nonReEntrant :: EncType -> MyParser a -> MyParser a
+nonReEntrant t p = (not <$> isInEnc t) >>=  guard >> pushEnc t >> p >>= (<$ popEnc)
+
+getInline :: MyParser (MyParser Inline)
+getInline =  head . psInlStack <$> getState
+
+pushInline :: MyParser Inline -> MyParser ()
+pushInline i = modifyState $ \st -> st {psInlStack = i : psInlStack st}
+
+popInline :: MyParser ()
+popInline = modifyState $ \st -> st {psInlStack = pop . psInlStack $ st}
+    where
+        pop [] = error "popInline - can never be here"
+        pop is@(_:[]) = is
+        pop (_:is) = is
+
+withInline :: MyParser Inline -> MyParser a -> MyParser a
+withInline i p = pushInline i >> p >>= (<$ popInline)
+
+manyEnd  :: String          -- Skip chars
+         -> MyParser ()     -- end parser
+         -> MyParser a      -- inner parser
+         -> MyParser [a]    
+manyEnd = manyEnd'' (const mzero) return
+
+manyEnd'  :: String         -- Skip chars
+         -> MyParser ()     -- end parser
+         -> MyParser a      -- inner parser
+         -> MyParser [a]
+manyEnd'= manyEnd'' return return
+
+manyEnd1 :: String          -- Skip chars
+         -> MyParser ()     -- end parser
+         -> MyParser a      -- inner parser
+         -> MyParser [a]
+manyEnd1 = manyEnd'' (const mzero) (\as -> if null as then mzero else return as)
+
+manyEnd1':: String          -- Skip chars
+         -> MyParser ()     -- end parser
+         -> MyParser a      -- inner parser
+         -> MyParser [a]
+manyEnd1'= manyEnd'' return (\as -> if null as then mzero else return as)
+
+manyEnd'' :: ([a] -> MyParser [a]) -- on inner failed
+          -> ([a] -> MyParser [a]) -- post check
+          -> String                -- Skip chars
+          -> MyParser ()           -- end parser
+          -> MyParser a            -- inner parser
+          -> MyParser [a]
+manyEnd'' f p s e i = do
+    sWas <- psSkipChars <$> getState
+    modifyState $ \st -> st {psSkipChars = s ++ sWas}
+    let
+        scan as = try (end as) <|> cont as <|> f as
+        end as = e >> return as
+        cont as = (:as) <$> i >>= scan 
+    as <- scan []
+    modifyState $ \st -> st {psSkipChars = sWas}
+    p . reverse $ as
+
+manyEndHist  :: String          -- Skip chars
+             -> Int             -- samples to look back for look back parser
+             -> MyParser ()     -- lookBack parser
+             -> MyParser ()     -- Pass end parser
+             -> MyParser ()     -- Fail end parser
+             -> MyParser a      -- inner parser
+             -> MyParser [a]
+manyEndHist s h l p f i = do
+    sWas <- psSkipChars <$> getState
+    modifyState $ \st -> st {psSkipChars = s ++ sWas}
+    let
+        scan as a = let as' = a:as in try (endPass as') <|> endCont as'
+        endPass as = l >> p >> return as
+        endCont as = count h anyToken >> lookBack h i' (scan as)
+        guardFail = ((False <$ (lookAhead . try) f) <|> return True) >>= guard
+        i'  = guardFail >> i
+    as <- lookBack h i' (scan [])
+    modifyState $ \st -> st {psSkipChars = sWas}
+    return (reverse as)
+
+---------------------------------------------------------------------------------------------
+-- common parsing
+---------------------------------------------------------------------------------------------
+
+lookBack :: Int               -- The legth of the history
+         -> MyParser a        -- Parser applied normally
+         -> (a -> MyParser b) -- Parser applied N characters back from where previous one stopped
+         -> MyParser b        -- The result of both parsers
+lookBack h p l = do
+    (src, pos) <- (,) <$> getInput <*> getPosition
+    a <- p
+    (srcO, posO) <- (,) <$> getInput <*> getPosition
+    let (src', pos') = mv src pos posO h
+    setInput src' >> setPosition pos'
+    b <- l a
+    pos'' <- getPosition
+    when (pos'' < posO) (setInput srcO >> setPosition posO)
+    return b
+    where
+        mv [] _ _ _                    = error "lookBack - input exhausted before catching up"
+        mv sh ph pc _      | ph == pc  = (sh, ph)
+        mv (c:sh) ph pc h' | h' <= 0   = mv sh (updatePosChar ph c) pc 0
+        mv sh@(c:_) ph pc h'           = mv sh (updatePosChar ph c) pc (h' - 1)
+
+lookBack' :: Int               -- The legth of the history
+          -> MyParser a        -- Parser applied normally
+          -> MyParser b        -- Parser applied N characters back from where previous one stopped
+          -> MyParser (a,b)    -- The result of both parsers
+lookBack' h p l = lookBack h p (\a -> (,) a <$> l)
+
+eol :: MyParser ()
+eol = (char '\r' >> optional (char '\n')) <|> (char '\n' >> optional (char '\r'))
+
+bol :: MyParser ()
+bol = (==1) . sourceColumn <$> getPosition >>= guard
+
+bof :: MyParser ()
+bof = bol >> (==1) . sourceLine <$> getPosition >>= guard
+
+nonSkipChar :: Char -> MyParser Char
+nonSkipChar c = psSkipChars <$> getState >>= \s -> satisfy (\x -> notElem x s && x == c)
+
+anyNonSkipChar :: MyParser Char
+anyNonSkipChar = psSkipChars <$> getState >>= \s -> satisfy (`notElem` s)
+
+oneOfNonSkipChar :: String -> MyParser Char
+oneOfNonSkipChar sy = psSkipChars <$> getState >>= \sn -> satisfy (\x -> notElem x sn && elem x sy)
+
+noneOfNonSkipChar :: String -> MyParser Char
+noneOfNonSkipChar sy = psSkipChars <$> getState >>= \sn -> satisfy (\x -> notElem x sn && notElem x sy)
+
+escapedChar :: MyParser Char
+escapedChar =  try (char '\\' >> oneOf "*_^~+-#![]|?{") <|> anyNonSkipChar
+
+spaceChar :: MyParser Char
+spaceChar = try (anyChar >>= \c -> if C.isSpace  c && notElem c "\r\n" then return c else mzero)
+
+skipSpaces :: MyParser ()
+skipSpaces = skipMany spaceChar
+
+skipSpaces1 :: MyParser ()
+skipSpaces1 = skipMany1 spaceChar
+
+restOfLine :: MyParser ()
+restOfLine = skipSpaces >> (eof <|> eol)
+
+restOfLineNotEol :: MyParser ()
+restOfLineNotEol = skipSpaces >> (lookAhead . try $ (eol <|> eof))
+
+blankLine :: MyParser ()
+blankLine =  try (eol >> skipSpaces >> (eof <|> eol))
+         <|> try (bol >> skipSpaces >> eol) 
+         <|> try (bol >> skipSpaces1 >> eof) 
+
+printChar :: MyParser Char
+printChar = try (escapedChar >>= \c -> if C.isSpace c then mzero else return c)
+
+identity :: MyParser ()
+identity = return ()
+
+notFollowedBy' :: MyParser a -> MyParser ()
+notFollowedBy' p = try $ ((False <$ try p) <|> return True) >>= guard
 ---------------------------------------------------------------------------------------------
 -- Block parsing
 ---------------------------------------------------------------------------------------------
 
-prsBOL :: MyParser ()
-prsBOL = do
-    src <-  getPosition
-    let cn = sourceColumn src 
-    unless (cn == 1) $ fail "expecting beginning of line"
+anyBlock :: MyParser Block
+anyBlock = choice $ map try [emptyLines, table, heading, horizRule, numberedList, bulletList, paragraph]
 
-prsBOF :: MyParser ()
-prsBOF = do
-    src <-  getPosition
-    let cn = sourceColumn src 
-    let ln = sourceLine src 
-    unless (cn == 1 && ln == 1) $ fail "expecting beginning of file"
+emptyLines :: MyParser Block
+emptyLines = Null <$ many1 blankLine
 
 
-prsBlocks :: MyParser [Block]
-prsBlocks = many $ choice prsBlockOrder
-
-prsBlocks1 :: MyParser [Block]
-prsBlocks1 = many1 $ choice prsBlockOrder
-    
-prsBlockOrder :: [MyParser Block]
-prsBlockOrder = map try [prsEmptyLines, prsTable, prsHdng, prsHorizRule, prsNumberedList, prsBulletList, prsParagraph
-                        ]
-
-prsIsBlockStart :: MyParser ()
-prsIsBlockStart = do
-    _ <- lookAhead $ choice $ map try [prsAnyNewListPfxS
-                                 ,prsHorizRuleS
-                                 ,prsHdngPfxS
-                                 ,prsTableHdrStartS
-                                 ,prsEmptyLines >> return ""
-                                 ,prsTableCellStartS
-                                 ,prsTableRowsStartS
-                                 ,eof >> return ""]
-    return ()
-                                               
-
-prsIsNotBlockStart :: MyParser ()
-prsIsNotBlockStart = prsNot prsIsBlockStart -- (prsIsBlockStart >> fail "Not expecting block start") <|> (return ())
-
-prsIsBlockStartB :: MyParser Bool
-prsIsBlockStartB = (prsIsBlockStart >> return True) <|> return False
-
-prsRestOfLine :: MyParser ()
-prsRestOfLine = optional (blankline <|> (skipSpaces >> prsPassIgnoreChar'))
-
-
-prsEmptyLines :: MyParser Block
-prsEmptyLines = many1 (   (newline >> many spaceChar >> newline)  -- empty lines or file starts with newlines
-                      <|> (prsBOF >> many spaceChar >> newline)   -- file starts with one empty line
-                      ) >> return Null
-
-prsHdngPfx :: MyParser (String, Int)
-prsHdngPfx = do
-    prsBOL
-    skipSpaces
-    h <- oneOf "hH"
-    d <- digit 
-    p <- oneOf "."
-    _ <- many1 spaceChar
-    return ([h,d,p], C.digitToInt d)
-
-prsHdngPfxS :: MyParser String 
-prsHdngPfxS = liftM fst prsHdngPfx
-
-prsHdng :: MyParser Block
-prsHdng = do
-    l <- liftM psLevel getState
-    d <- liftM snd prsHdngPfx
-    inls <- prsInlsTillEol >>~ prsRestOfLine
-    return $ Header (d + l) nullAttr inls
-
-prsHorizRuleS :: MyParser String
-prsHorizRuleS = do
-    prsBOL
-    s <- string "----"
-    s' <- many (char '-')
-    prsRestOfLine
-    return $ s ++ s'
-
-prsHorizRule :: MyParser Block
-prsHorizRule = do
-    _ <- prsHorizRuleS
-    return HorizontalRule
-
-prsParagraph :: MyParser Block
-prsParagraph = prsInlsTillBlock1 >>= toPara
-    where 
-        toPara inls = return $ Para $ dropTailSpace inls
-        dropTailSpace inls = reverse . dropWhile matchSpace . reverse $ inls
-        matchSpace Space = True
-        matchSpace _     = False
-
-
-prsAnyNewListPfxS :: MyParser String
-prsAnyNewListPfxS = prsBOL >> skipSpaces >> many1 (oneOf "*#-") >>~ spaceChar
-
-prsLstContent :: MyParser [Block]
-prsLstContent = many (choice $ map try [prsNumberedList, prsBulletList, prsParagraph, prsTable])  
-
-prsBulletList :: MyParser Block
-prsBulletList = do
-    let prsPrefix pfx = oneOfStrings [ pfx ++ "*", pfx ++ "-" ] >>~ spaceChar >>~ skipSpaces
-        maker = BulletList  
-    prsAnyListList maker prsPrefix
-
-getListFmt :: MyParser ListNumberStyle
-getListFmt = do
-    ps <- getState
-    let pfxDepth = psDepth ps `mod` 4
-    case pfxDepth of
-        0 -> return LowerAlpha
-        1 -> return LowerRoman
-        2 -> return UpperAlpha
-        3 -> return UpperRoman
-        _ -> error "should never happen"
-
-prsNumberedList :: MyParser Block
-prsNumberedList = do
-    lstFmt <- getListFmt
-    let prsPrefix pfx = string ( pfx ++ "#") >>~ spaceChar >>~ skipSpaces
-        maker = OrderedList (1, lstFmt, DefaultDelim)  
-    prsAnyListList maker prsPrefix
-
-prsAnyListList :: ([[Block]] -> Block) -> (String -> MyParser String) ->  MyParser Block
-prsAnyListList maker prsPrefix = do
-    -- Match beginning of line
-    prsBOL
-    -- bail out of prsLstContent
-    bStop <- prsStopList2
-    when bStop $ fail "" 
-    -- Read list starter and set list prefix if successful
-    ps <- getState
-    let pfx =  psListPrefix ps
-    let pfxDepth = psDepth ps
-    let prsPrefix' = prsPrefix pfx
-    s <- prsPrefix'
-    setState $ ps {psListPrefix = s, psDepth = pfxDepth  + 1}
-    -- Skip any leading spaces
-    skipSpaces
-    -- Recursively consume lists for this level
-    bss <- _prsList prsPrefix' [] 
-    -- Reset list prefix
-    modifyState (\ps' -> ps'{psListPrefix = pfx, psDepth = pfxDepth})
-    -- Create block
-    return $ maker bss 
-    where
-        _prsList prsPrefix'' bss' = do
-            -- get the list content 
-            bss'' <- prsLstContent
-            c <- optionMaybe $ lookAhead $ try prsPrefix''
-            case c of
-                 -- It does not match so return current content
-                 Nothing -> return $  bss' ++ [bss'']
-                 -- It does match consume start and then call self to get contetn
-                 Just _ -> prsPrefix'' >> _prsList prsPrefix''  (bss' ++ [bss''])
-
-prsListPfxDepth :: MyParser Bool
-prsListPfxDepth = do
-    let prsPrefix = many1 (oneOfStrings [ "#", "*", "-" ]) >>~ spaceChar
-    r <- optionMaybe $ lookAhead $ try prsPrefix
-    case r of
-        Nothing -> return False
-        Just pfx -> do
-                    let d = length pfx
-                    ps <- getState
-                    let pfxDepth =  psDepth ps
-                    return $ d <= pfxDepth
-
-prsBlankLines :: MyParser Bool
-prsBlankLines = do
-    r <- optionMaybe $ lookAhead $ try blanklines
-    case r of
-        Nothing -> return False
-        Just s -> return $ length s > 1
-
-prsStopList2 :: MyParser Bool
-prsStopList2 = do
-     b <- prsListPfxDepth
-     b' <- prsBlankLines
-     if b || b' then return True
-         else do
-             r <- optionMaybe $ lookAhead $ choice $ map try [prsHorizRuleS, prsHdngPfxS]
-             case r of 
-                 Nothing -> return False
-                 Just _ -> return True
-
-prsTableContent :: MyParser [Block]
-prsTableContent = many (choice $ map try [prsParagraph])  
-
-prsTable :: MyParser Block
-prsTable = do
-    hdr <- prsTableHdr
-    prsRestOfLine
-    rows <-  many prsTableRows
-    let aln = map (const AlignLeft) hdr
-    let colw = map (const 0) hdr
+table :: MyParser Block
+table = do
+    tableStart 
+    hs <- tableCells "||"
+    rs <- tableRows
+    let aln = map (const AlignLeft) hs
+    let colw = map (const 0) hs 
     let cap = [Str ""]
-    return $  Table cap aln colw hdr rows
+    return $  Table cap aln colw hs rs
 
+tableStart :: MyParser ()
+tableStart = ((optional . try $ eol) >> bol >> skipSpaces >> void (string "||")) <?> "tableStart"
 
-prsTableHdrStartS :: MyParser String
-prsTableHdrStartS = do
-    prsBOL
-    skipSpaces >> string "||"
+tableRowStart :: MyParser ()
+tableRowStart = bol >> skipSpaces >> void (string "|")
 
-prsTableHdr :: MyParser [TableCell]
-prsTableHdr = do
-    _ <- prsTableHdrStartS
-    updateState (\ps -> ps {psIgnoreChars =  '|':psIgnoreChars ps}) 
-    r <- endBy1 prsTableContent $ string "||"
-    updateState (\ps -> let (_:is) = psIgnoreChars ps in ps {psIgnoreChars = is }) 
-    return r
+tableCells :: String -> MyParser [TableCell]
+tableCells s = withInline inlineNoEol . nonReEntrant EncTableCell $ manyTill (manyEnd "|" e anyBlock) restOfLine
+    where 
+        e = try (skipSpaces >> string s >> optional (try restOfLineNotEol)) <|> try restOfLineNotEol
 
+tableRows :: MyParser [[TableCell]]
+tableRows = withInline inlineNoEol . nonReEntrant EncTableRow $ r
+    where
+        r = manyEnd "" er (tableRowStart >> tableCells "|")
+        er = (try tableRowStart >> mzero) <|> identity
 
-prsTableRowsStartS :: MyParser String
-prsTableRowsStartS = do
-    i <- liftM psIgnoreChars getState
-    case i of
-        '|':_ -> (void newline <|> prsBOL) >> skipSpaces >> string "|"
-        _ -> fail "Not inside table" >> return ""
+heading :: MyParser Block
+heading = psLevel <$> getState >>= \l -> headingStart >>= \d -> Header (d + l) nullAttr <$> h
+    where
+        h = manyEnd "" restOfLine inlineNoEol
 
-prsTableCellStartS :: MyParser String
-prsTableCellStartS = do
-    i <- liftM psIgnoreChars getState
-    case i of
-        '|':_ -> string "|"
-        _ -> fail "Not inside table" >> return ""
+headingStart :: MyParser Int
+headingStart = (optional . try $ eol) >> bol >> skipSpaces >> oneOf "hH" >> C.digitToInt <$> digit >>= (<$ (oneOf "." >> skipSpaces))
 
-prsTableRows :: MyParser [TableCell]
-prsTableRows = do
-    prsBOL
-    _ <- skipSpaces >> string "|"
-    updateState (\ps -> ps {psIgnoreChars =  '|':psIgnoreChars ps}) 
-    cs <- many1 (prsInlsTillEol >>~ string "|")
-    updateState (\ps -> let (_:is) = psIgnoreChars ps in ps {psIgnoreChars = is }) 
-    optional blankline 
-    return ( map ((:[]) . Para) cs )
-    
-    
+horizRule :: MyParser Block
+horizRule = HorizontalRule <$ (bol >> string "----" >> many (char '-') >> restOfLine)
+
+numberedList :: MyParser Block
+numberedList = anyList ListN
+
+bulletList :: MyParser Block
+bulletList = anyList ListB
+
+listFmt :: Int -> ListNumberStyle
+listFmt d = case d of
+    0 -> LowerAlpha
+    1 -> LowerRoman
+    2 -> UpperAlpha
+    3 -> UpperRoman
+    _ -> error "listFmt - should never happen"
+
+listContent :: MyParser Block
+listContent = choice $ map try [numberedList, bulletList, paragraph, table]
+
+data ListType = ListB | ListN deriving (Eq, Show)
+anyListStart :: MyParser (ListType, String)
+anyListStart = (optional . try $ eol) >> bol >> skipSpaces 
+    >> (fromJust . (`lookup`m) . last &&& id) <$> many1 (oneOfNonSkipChar s) 
+    >>= (<$ skipSpaces1)
+    where 
+        m = [('*', ListB), ('#', ListN), ('-', ListB)]
+        s = map fst m
+
+anyList :: ListType -> MyParser Block
+anyList t = do
+    (t', pfx) <- anyListStart
+    guard (t == t')
+    nonReEntrant (EncList pfx) $ do
+            let 
+                d = length pfx
+                enc = manyEnd' "" end listContent 
+                end = choice [ lookAhead . try $ lowerList
+                             , lookAhead . try $ changeList
+                             , lookAhead . try $ thisList
+                             , void . lookAhead . try $ blankLine
+                             , void . lookAhead . try $ horizRule
+                             , void . lookAhead . try $ headingStart
+                             ]
+                -- check for lower list 
+                lowerList = (< d) . length . snd <$> anyListStart >>= guard
+                -- check this list
+                thisList = (pfx==) . snd <$> anyListStart >>=  guard 
+                -- list depth is the same or higher but the prefix doesn't match
+                changeList = (\a -> d <= length a && (not . isPrefixOf pfx) a) . snd <$> anyListStart >>= guard
+                -- repeatedly parse list elements
+                scan xss = enc >>= \xs -> (try thisList >> scan (xs:xss)) <|> return (xs:xss)
+            case t of
+                ListN -> OrderedList (d, listFmt d, DefaultDelim) . reverse <$> scan []
+                ListB -> BulletList . reverse <$> scan []
+            
+
+paragraph :: MyParser Block
+paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para <$> manyEnd1' "" e i >>= (<$ (optional . try $ restOfLine))
+    where
+        e = choice $ map (lookAhead . try) [ void blankLine
+                                           , void tableStart
+                                           , void headingStart
+                                           , void anyListStart
+                                           , void horizRule
+                                           , void eof]
+
 ---------------------------------------------------------------------------------------------
 -- Inline parsing
 ---------------------------------------------------------------------------------------------
+inlineNoEol :: MyParser Inline
+inlineNoEol = choice $ map try [longDash, mediumDash, emphasis, strong, citation, deleted, inserted, superscript,
+                           subscript, monospaced, image, lineBreak,  normalWord, nonTrailingSpace]
+
+inlineEol :: MyParser Inline
+inlineEol = choice $ map try [longDash, mediumDash, emphasis, strong, citation, deleted, inserted, superscript,
+                           subscript, monospaced, image, lineBreak,  normalWord, nonTrailingSpace, inlEol]
+
+inlEol :: MyParser Inline
+inlEol =  Space <$ try (skipSpaces >> eol) >>= (<$ notFollowedBy (try  failInline' <|> try restOfLine))
+
+failInline :: MyParser ()
+failInline = choice $ map (lookAhead . try) [ void blankLine
+                                            , void tableStart
+                                            , void headingStart
+                                            , void anyListStart
+                                            , void horizRule
+                                            , void eof
+                                            ]
+failInline' :: MyParser ()
+failInline' = choice $ map try  [ void blankLine
+                                , void tableStart
+                                , void headingStart
+                                , void anyListStart
+                                , void horizRule
+                                , void eof
+                                ]
+
 addLineBreakBeforeAfterImages :: [Inline] -> MyParser [Inline]
 addLineBreakBeforeAfterImages ls = return $ foldr f [] ls
     where
         f img@(Image _ _) ls' = LineBreak : img : LineBreak : ls'
         f l ls' = l : ls'
 
-prsInlsTillEol :: MyParser [Inline]
-prsInlsTillEol =  many (prsFailIgnoreChar >> choice prsInlineOrder)  >>= addLineBreakBeforeAfterImages
-{-prsInlsTillEol1 = (many1  (prsFailIgnoreChar >> choice prsInlineOrder) ) >>= addLineBreakBeforeAfterImages-}
+inlineFormat :: EncType                 -- Type
+             -> String                  -- Delimeter
+             -> MyParser [Inline]
+inlineFormat t s = let
+    h = length s
+    delim = string s 
+    in getInline >>= \i -> nonReEntrant t (delim >> manyEndHist s h (void printChar) (void delim) failInline i)
+        
 
-prsInlineOrder :: [MyParser Inline]
-prsInlineOrder = map try [  prsLongDash, prsMediumDash, prsEmph, prsStrong, prsCitation, prsDeleted, prsInserted, prsSuperScript,
-                            prsSubScript, prsMonoSpaced, prsImage, prsLineBreak,  prsWord, prsSpaceNotAtEol
-                         ]
+inlineVerbatim :: EncType               -- Type
+             -> String                  -- Delimeter
+             -> MyParser String
+inlineVerbatim t s = inlineVerbatim' t s s
 
-prsInlineOrder2 :: [MyParser Inline]
-prsInlineOrder2 = map try [ prsLongDash, prsMediumDash, prsEmph, prsStrong, prsCitation, prsDeleted, prsInserted, prsSuperScript,
-                            prsSubScript, prsMonoSpaced, prsImage, prsLineBreak,  prsWord, prsSpaceTillBlock, 
-                            prsInlSpace
-                          ]
+inlineVerbatim' :: EncType              -- Type
+             -> String                  -- start delim
+             -> String                  -- end delim
+             -> MyParser String
+inlineVerbatim' t s e = let
+    h = length s
+    l = void printChar
+    end = void . string $ e
+    inner = anyNonSkipChar 
+    in nonReEntrant t (string s >> manyEndHist e h l end mzero inner)
 
-prsInlsTillBlock :: MyParser [Inline]
-prsInlsTillBlock = liftM reverse (prsInlsTillBlock1' []) >>= addLineBreakBeforeAfterImages
-    where 
-        prsInlsTillBlock1' ils = do
-            stop <-  prsIsBlockStartB
-            st <- getState 
-            let fmtEnd = case psInlineFmtStack st of
-                            []         -> False
-                            ((InlFmtBussy _,_):_)  ->  False
-                            _ -> True
-            if stop || fmtEnd
-                then return ils
-                else do 
-                    prsFailIgnoreChar
-                    !il <- choice prsInlineOrder2
-                    prsInlsTillBlock1' (il:ils)
-
-prsInlsTillBlock1 :: MyParser [Inline]
-prsInlsTillBlock1 = prsInlsTillBlock >>= (\ils -> if null ils then fail "Expected at least one Inline" else return ils)
-    
-    
-prsAnyInFmt :: MyParser Inline
-prsAnyInFmt = choice $ map try  [prsEmph, prsStrong, prsCitation, prsDeleted, prsInserted
-                                ,prsSuperScript, prsSubScript, prsMonoSpaced, prsImage ]
-
-prsEnclosed :: MyParser start -> MyParser end -> MyParser content -> MyParser [content]
-prsEnclosed s e = enclosed (s >> notFollowedBy space) (lookAhead (try nonspaceChar) >> e)
-
-prsEnclosed' :: MyParser start_end ->  MyParser content -> MyParser [content]
-prsEnclosed' s  = prsEnclosed s s
-
-prsEscChar :: MyParser Char
-prsEscChar = prsFailIgnoreChar >> (try (char '\\' >> oneOf "*_^~+-#![]|?{") <|> anyChar)
-
-prsAnyChar :: MyParser Char
-prsAnyChar = do
-    st <-  getState
-    case psInlineFmtStack st of
-        [] -> prsEscChar
-        ((InlFmtBussy _,f):_) -> f
-        _ -> fail ""
-
-{-prsAnyChar :: MyParser Char-}
-{-prsAnyChar = do-}
-    {-st <-  getState-}
-    {-case psInlineFmtStack st of-}
-        {-[] -> noneOf $ psIgnoreChars st-}
-        {-((InlFmtBussy _,f):_) -> do-}
-            {-c <- f-}
-            {-if not . elem c . psIgnoreChars $ st then return c else fail ""-}
-        {-_ -> fail ""-}
-    
-prsFailIgnoreChar' :: MyParser Char
-prsFailIgnoreChar' = do
-    ignr <- liftM psIgnoreChars getState
-    lookAhead $ try $  satisfy (`notElem` ignr)
-
-prsFailIgnoreChar :: MyParser ()
-prsFailIgnoreChar = do
-    _ <- prsFailIgnoreChar'
-    return ()
-
-prsPassIgnoreChar' :: MyParser Char
-prsPassIgnoreChar' = do
-    ignr <- liftM psIgnoreChars getState
-    lookAhead $ try $  satisfy (`notElem` ignr)
-
--- spaces
-prsInlSpaceC :: MyParser Char
-prsInlSpaceC = do
-    st <- getState
-    case psInlineFmtStack st of
-        [] -> satisfy chk
-        (InlFmtBussy _,f):_ -> do c <- f; if chk c then return c else fail ""
-        _ -> fail ""
-    where 
-        chk c = C.isSpace c && notElem c "\n\r"
-
-prsInlSpaceS :: MyParser String
-prsInlSpaceS = do
-    st <- getState
-    case psInlineFmtStack st of
-        [] -> many1 . try $ satisfy chk
-        (InlFmtBussy _,f):_ ->  many1 . try $ do
-                        c <- f
-                        if chk c then return c else fail ""
-        _ -> fail "prsInlSpace failed" (""::String)
-    where 
-        chk c = C.isSpace c && notElem c "\n\r"
-                    
-prsInlSpace :: MyParser Inline
-prsInlSpace =  prsInlSpaceS >> return Space 
-
-prsSpaceNotAtEol :: MyParser Inline
-prsSpaceNotAtEol = prsInlSpace >>~ notFollowedBy' (eof <|> void newline)
-
-prsSpaceTillBlock :: MyParser Inline
-prsSpaceTillBlock = many1 ( prsIsNotBlockStart >> (prsInlSpaceC <|> newline) ) >> return Space
-
-prsNot :: MyParser a -> MyParser ()
-prsNot p = do
-    matched <- lookAhead . try $ (p >> return True) <|> return False
-    when matched $ fail ""
-
-prsNotEol :: MyParser Char
-prsNotEol = prsAnyChar >>~ notFollowedBy newline
-
-prsInlFmt :: InlFmtType -> ([Inline]->Inline) -> String -> MyParser Inline
-prsInlFmt t fmt s = do
-    st <- getState
-    let f (InlFmtBussy  t', _) = t' == t
-        f (InlFmtFailed t', _) = t' == t
-        f (InlFmtPassed t', _) = t' == t
-    case find f . psInlineFmtStack $ st of
-        Nothing -> return ()
-        Just _ ->  fail ""
-    prsNot $ char '\\'
-    string s >> notFollowedBy space
-    setState $ st {psInlineFmtStack = (InlFmtBussy t,  try ep <|> try bp <|> prsEscChar) : psInlineFmtStack st}
-    inls <- try prsInlsTillBlock1
-    stR <- getState
-    modifyState (\st' -> st'{psInlineFmtStack = psInlineFmtStack st})
-    case psInlineFmtStack stR of
-        [] -> error "prsInlFmt - stact mis match"
-        ((InlFmtBussy _,_):_) -> fail  "prsInlFmt - stact mis match bussy"
-        ((InlFmtFailed _,_):_) -> fail  ""
-        ((InlFmtPassed _,_):_) -> return $ fmt inls
-    where
-        ep :: MyParser Char
-        ep = do
-           lookAhead . try . prsNot $ space
-           c <- prsEscChar >>~ string s
-           modifyState (\st -> case psInlineFmtStack  st of
-                                [] -> error "prsInlFmt - stack missmatch"
-                                ((InlFmtBussy tp,f):t'') -> st {psInlineFmtStack =  (InlFmtPassed tp, f):t''}
-                                _ -> st)
-           return c
-        bp :: MyParser Char
-        bp = do
-           lookAhead . try $ string s >> notFollowedBy space
-           c <- prsEscChar 
-           modifyState (\st -> case psInlineFmtStack st of
-                                [] -> error "prsInlFmt - stack missmatch"
-                                ((InlFmtBussy tp,f):t'') -> st {psInlineFmtStack =  (InlFmtFailed tp, f):t''}
-                                _ -> st)
-           return c
-
+nonTrailingSpace :: MyParser Inline
+--nonTrailingSpace = Space <$ (many1 spaceChar  >> notFollowedBy (try eol <|> try eof <|> try failInline'))
+nonTrailingSpace = Space <$ (many1 spaceChar  >> (lookAhead . try) printChar)
 
 -- _emphasis_
-prsEmph :: MyParser Inline
-prsEmph = prsInlFmt InlEmph Emph "_"
+emphasis :: MyParser Inline
+emphasis = Emph <$> inlineFormat EncEmph  "_"
 
 -- *strong*
-prsStrong :: MyParser Inline
-prsStrong = prsInlFmt InlStrong Strong "*"
-
--- ??citation??
-prsCitation :: MyParser Inline
-prsCitation = do
-    s <- prsEnclosed' (string "??") prsNotEol
-    return $ Cite [Citation s [] [] NormalCitation 0 0] [Str s]
+strong :: MyParser Inline
+strong = Strong <$> inlineFormat EncStrong  "*"
 
 -- -deleted-
-prsDeleted :: MyParser Inline
-prsDeleted = fail "" -- prsInlFmt InlDel Strikeout "-"
+deleted :: MyParser Inline
+deleted =  Strikeout <$> inlineFormat EncDel "-"
 
 -- +inserted+
-prsInserted :: MyParser Inline
-prsInserted = prsInlFmt InlIns SmallCaps "+"
+inserted :: MyParser Inline
+inserted = SmallCaps <$> inlineFormat EncIns "+"
 
 -- ^superscript^
-prsSuperScript :: MyParser Inline
-prsSuperScript = prsInlFmt InlSup Superscript "^"
+superscript :: MyParser Inline
+superscript = Superscript <$> inlineFormat EncSup "^" 
 
 -- ~subscript~
-prsSubScript :: MyParser Inline
-prsSubScript = prsInlFmt InlSub Subscript "~"
+subscript :: MyParser Inline
+subscript = Subscript <$> inlineFormat EncSub "~"
 
--- {{monospaced}}
-prsMonoSpaced :: MyParser Inline
-prsMonoSpaced = do
-    s <- prsEnclosed' (string "{{") prsNotEol
-    return $ Code nullAttr s
+-- ??citation??
+citation :: MyParser Inline
+citation = inlineVerbatim EncCite "??" >>= \s -> return $ Cite [Citation s [] [] NormalCitation 0 0] [Str s]
+
+--  -- {{monospaced}}
+monospaced :: MyParser Inline
+monospaced = Code nullAttr <$> inlineVerbatim' EncCite "{{" "}}"
 
 -- \\ line break
-prsLineBreak :: MyParser Inline
-prsLineBreak = string "\\\\" >> notFollowedBy' (string "\\") >> return  LineBreak
+lineBreak :: MyParser Inline
+lineBreak = LineBreak <$ (string "\\\\" >> (notFollowedBy . try) (string "\\"))
 
 
 -- -- medium dash en dash U+2013
-prsMediumDash :: MyParser Inline
-prsMediumDash = do
-    _ <- string "--"
-    return $ Str "\2013"
+mediumDash :: MyParser Inline
+mediumDash =  Str "\2013" <$ string "--"
 
 -- --- long dash em dash U+2014
-prsLongDash :: MyParser Inline
-prsLongDash = do
-    _ <- string "---"
-    return $ Str "\2014"    
-
+longDash :: MyParser Inline
+longDash = Str "\2014" <$ string "---"
 
 -- any normal word
-prsWord :: MyParser Inline
-prsWord = do
-    st <- getState
-    setState $ st {psIgnoreChars = psIgnoreChars st ++ " \t\n\r"}
-    s <- many1 (try p)
-    modifyState (\st' -> st' {psIgnoreChars = psIgnoreChars st})
-    return $ Str s
-    where 
-        p = do
-            prsNot (lookAhead . try $ prsAnyInFmt)
-            prsAnyChar
+normalWord :: MyParser Inline
+normalWord = Str <$> many1 (printChar >>= (<$ (notFollowedBy . try $ failInline)))
 
-prsEndl :: MyParser ()
-prsEndl = do
-    _ <- manyTill space $ lookAhead $ try newline
-    _ <- newline
-    return ()
 
-prsImage :: MyParser Inline
-prsImage = do
-    ImageLink imgL _ <- prsImageRaw
+image :: MyParser Inline
+image = do
+    ImageLink imgL _ <- imageRaw
     return $ Image [Str imgL] (imgL, "")
 
 -- parse an image link
@@ -549,9 +468,9 @@ data ImageLink = ImageLink
         imgAttrs :: Maybe String
     }deriving (Show, Eq)
 
-prsImageRaw :: MyParser ImageLink
-prsImageRaw = do
-    s <- prsEnclosed' (string "!") prsNotEol
+imageRaw :: MyParser ImageLink
+imageRaw = do
+    s <- inlineVerbatim EncImage "!" 
     (l,a) <- parseFromString _prsLinkAttr s
     return $ ImageLink l a
     where
@@ -560,8 +479,18 @@ prsImageRaw = do
             a <- optionMaybe (char '|' >> many anyChar)
             return (l,a)
 
-prsImagesRaw :: MyParser [ImageLink]
-prsImagesRaw = liftM concat $ many $ liftM (:[]) (try prsImageRaw) <|> (anyChar >> return [])
+parseFromString :: MyParser a -> String -> MyParser a
+parseFromString parser _str = do
+  oldPos <- getPosition
+  oldInput <- getInput
+  setInput _str
+  result <- parser
+  setInput oldInput
+  setPosition oldPos
+  return result
+
+imagesRaw :: MyParser [ImageLink]
+imagesRaw = liftM concat $ many $ liftM (:[]) (try imageRaw) <|> (anyChar >> return [])
 
 imagesFromDescription :: String -> [ImageLink]
 imagesFromDescription d = 
@@ -569,7 +498,7 @@ imagesFromDescription d =
         Left e -> error $ show e
         Right a -> a
     where
-        r = runParser prsImagesRaw defaultParseState "" d 
+        r = runParser imagesRaw defaultParseState "" d 
 
 replaceImageLinks :: (ImageLink -> ImageLink) -> String -> String
 replaceImageLinks _ [] = []
@@ -585,106 +514,25 @@ replaceImageLinks replacer d =
         pe :: MyParser (Either ImageLink String)
         pe = pImage <|> pText 
             where
-                pImage = liftM Left $ try prsImageRaw 
+                pImage = liftM Left $ try imageRaw 
                 pText =  liftM Right $ many1 pTextChar
                 pTextChar = lookAhead (try pNotImage) >> anyChar
-                pNotImage = prsNot prsImageRaw 
+                pNotImage = ((False <$ imageRaw) <|> return True) >>= guard
         -- Transform parse results and turn into string again
         collapse :: String -> Either ImageLink String -> String 
         collapse sAcc (Left iml ) = let ImageLink m as = replacer iml in sAcc ++ "!" ++ m ++ maybe "" (\a-> '|' : a) as ++ "!"
         collapse sAcc (Right s) = sAcc ++ s
+---------------------------------------------------------------------------------------------
+parseDescription :: Int -> String -> [Block]
+parseDescription l ds = 
+    case res of
+        Left e -> [RawBlock "" (show e)]
+        Right b -> b
+    where
+        res = runParser prsDesc  defaultParseState {psLevel = l} "Desc" ds
 
-
-------------------------------------------------------------------------
--- From Pandoc.Parsing
-------------------------------------------------------------------------
-
--- | Like @manyTill@, but reads at least one item.
-many1Till :: Parsec [tok] st a
-          -> Parsec [tok] st end
-          -> Parsec [tok] st [a]
-many1Till p end = do
-         first <- p
-         rest <- manyTill p end
-         return (first:rest)
--- | Parses a space or tab.
-spaceChar :: Parsec String st Char
-spaceChar = satisfy $ \c -> c == ' ' || c == '\t'
-
--- | Parses a nonspace, nonnewline character.
-nonspaceChar :: Parsec String st Char
---nonspaceChar = satisfy $ \x -> x /= '\t' && x /= '\n' && x /= ' ' && x /= '\r'
-nonspaceChar = satisfy (`notElem` "\t\n\r ")
-
--- | Skips zero or more spaces or tabs.
-skipSpaces :: Parsec String st ()
-skipSpaces = skipMany spaceChar
-
--- | Skips zero or more spaces or tabs, then reads a newline.
-blankline :: Parsec String st Char
-blankline = try $ skipSpaces >> newline
-
--- | Parses one or more blank lines and returns a string of newlines.
-blanklines :: Parsec String st String 
-blanklines = many1 blankline
-
--- | Parses material enclosed between start and end parsers.
-enclosed :: Parsec String st t    -- ^ start parser
-         -> Parsec String st end  -- ^ end parser
-         -> Parsec String st a    -- ^ content parser (to be used repeatedly)
-         -> Parsec String st [a]
-enclosed start end parser = try $
-  start >> notFollowedBy space >> many1Till parser end
-
-{--- | Parse string, case insensitive.-}
-{-stringAnyCase :: [Char] -> Parsec [Char] st String-}
-{-stringAnyCase [] = string ""-}
-{-stringAnyCase (x:xs) = do-}
-  {-firstChar <- char (C.toUpper x) <|> char (C.toLower x)-}
-  {-rest <- stringAnyCase xs-}
-  {-return (firstChar:rest)-}
-
--- | Parse contents of 'str' using 'parser' and return result.
-parseFromString :: Parsec [tok] st a -> [tok] -> Parsec [tok] st a
-parseFromString parser _str = do
-  oldPos <- getPosition
-  oldInput <- getInput
-  setInput _str
-  result <- parser
-  setInput oldInput
-  setPosition oldPos
-  return result
-
--- | Like >>, but returns the operation on the left.
--- (Suggested by Tillmann Rendel on Haskell-cafe list.)
-(>>~) :: (Monad m) => m a -> m b -> m a
-a >>~ b = a >>= \x -> b >> return x
-
-
--- | A more general form of @notFollowedBy@.  This one allows any
--- type of parser to be specified, and succeeds only if that parser fails.
--- It does not consume any input.
-notFollowedBy' :: Show b => Parsec [a] st b -> Parsec [a] st ()
-notFollowedBy' p  = try $ join $  do  a <- try p
-                                      return (unexpected (show a))
-                                  <|>
-                                  return (return ())
-
-
-oneOfStrings' :: (Char -> Char -> Bool) -> [String] -> Parsec String st String
-oneOfStrings' _ []   = fail "no strings"
-oneOfStrings' matches strs = try $ do
-  c <- anyChar
-  let strs' = [xs | (x:xs) <- strs, x `matches` c]
-  case strs' of
-       []  -> fail "not found"
-       _   -> (c:) `fmap` oneOfStrings' matches strs'
-               <|> if "" `elem` strs'
-                      then return [c]
-                      else fail "not found"
-
--- | Parses one of a list of strings.  If the list contains
--- two strings one of which is a prefix of the other, the longer
--- string will be matched if possible.
-oneOfStrings :: [String] -> Parsec String st String
-oneOfStrings = oneOfStrings' (==)
+prsDesc :: MyParser [Block]
+prsDesc = liftM (filter noNull) (many1 anyBlock)
+    where
+        noNull Null = False
+        noNull _ = True

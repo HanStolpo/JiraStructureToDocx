@@ -93,5 +93,6 @@ Test-Suite test-parser
                         text,
                         yaml,
                         strings,
+                        raw-strings-qq,
                         csv
 

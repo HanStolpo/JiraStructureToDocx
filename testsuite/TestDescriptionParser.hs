@@ -1,17 +1,21 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
- -- GHC_STATIC_OPTION_i=../src:../testsuite
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables, QuasiQuotes #-}
+
+-- GHC_STATIC_OPTION_i=../src:../testsuite
 
 
 module Main where
 
-import DescriptionParserInner
+import DescriptionParserInner hiding (subscript, superscript, strong, bulletList,table)
+import qualified DescriptionParserInner as D (subscript, superscript, strong, bulletList,table)
 import Test.HUnit
 import System.Exit (exitFailure)
 import Text.Parsec
 import Text.Pandoc
 import Text.Pandoc.Builder hiding (space)
+import Control.Monad
 import qualified Text.Pandoc.Builder  as PB (space)
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<$))
+import Text.RawString.QQ
 import Debug.Trace
 
 ----------------------------------------------------------------------------------------
@@ -19,11 +23,11 @@ import Debug.Trace
 ----------------------------------------------------------------------------------------
 testPS ::  ParseState -> MyParser b -> String -> Either String b
 testPS s p i = 
-    case r of 
+    case res of 
         Left e -> Left $ show e ++ " for input : " ++ i
         Right a -> Right a
     where
-        r = runParser p s "" i
+        res = runParser p s "" i
 
 testP :: MyParser b -> String -> Either String b
 testP = testPS defaultParseState
@@ -31,6 +35,17 @@ testP = testPS defaultParseState
 testPrsLeftOver :: MyParser String
 testPrsLeftOver = many anyChar
 
+toInline :: Inlines -> Inline
+toInline = head . toList
+
+toBlock :: Blocks -> Block
+toBlock = head . toList
+
+olist :: Int -> [Blocks] -> Blocks
+olist d = orderedListWith (d, listFmt d, DefaultDelim)
+
+tbl :: Int -> [Blocks] -> [[Blocks]] -> Blocks
+tbl c = table (str "") (take c . repeat $ (AlignLeft,0))
 
 matchError ::  Show a => Either t a -> Bool
 matchError (Right a) = trace (show a) False
@@ -42,111 +57,213 @@ f <| a = f a
 
 descriptionParserTests ::  Test
 descriptionParserTests = test
-        [   "newline" ~: Right '\n'  ~=? testP newline "\n",
+        [   "eol 1" ~: Right ()  ~=? testP eol "\n",
+            "eol 2" ~: Right ()  ~=? testP eol "\r\n",
+            "eol 3" ~: Right ()  ~=? testP eol "\r",
+            "eol 4" ~: Right ()  ~=? testP eol "\n\r",
+            "eol 5" ~: Right "a"  ~=? testP (eol >> testPrsLeftOver) "\n\ra",
+            "eol 6" ~: Right "a"  ~=? testP (eol >> testPrsLeftOver) "\na",
+            "eol 7" ~: Right "a"  ~=? testP (eol >> testPrsLeftOver) "\ra",
+            "eol 8" ~: Right "a"  ~=? testP (eol >> testPrsLeftOver) "\r\na",
 
-            "prsBOF" ~:  True ~=? matchError (testP (anyChar >> prsBOF) "a\n"),
-            "prsBOF 2" ~:  Right () ~=? testP prsBOF "a\n",
+            "bol 1" ~:  True ~=? matchError (testP (anyChar >> bol) "a\n"),
+            "bol 2" ~:  Right () ~=? testP (anyChar >> anyChar >> bol) "a\n",
+            "bol 3" ~:  Right () ~=? testP bol "a\n",
 
-            "prsEmptyLines" ~: Right Null ~=? testP prsEmptyLines "\n\n",
-            "prsEmptyLines 2" ~: Right Null ~=? testP prsEmptyLines "\n \n",
-            "prsEmptyLines 3" ~:  True ~=? matchError (testP (anyChar >> prsEmptyLines) "a\n"),
+            "bof 1" ~:  True ~=? matchError (testP (anyChar >> bof) "a\n"),
+            "bof 2" ~:  True ~=? matchError (testP (anyChar >> bof) "\n\n"),
+            "bof 3" ~:  Right () ~=? testP bof "a\n",
 
-            "prsIsBlockStartB" ~: Right True ~=? testP prsIsBlockStartB "\n\n",
-            "prsIsBlockStartB 2" ~: Right True ~=? testP prsIsBlockStartB "\n \n",
-            "prsIsBlockStartB 3" ~: Right False ~=? testP (anyChar >> prsIsBlockStartB) "a\n",
-            
-            "prsInlsTillBlock1 0" ~: Right (toList $ text "some text") ~=? testP prsInlsTillBlock1 "some text",
-            "prsInlsTillBlock1" ~: Right (toList $ text "some text " <> emph "emp") ~=? testP prsInlsTillBlock1 "some text _emp_",
-            "prsInlsTillBlock1 2" ~: Right (toList $ text "some text " <> emph "emp") ~=? testP prsInlsTillBlock1 "some text\n_emp_",
-            "prsInlsTillBlock1 3" ~: Right (toList $ text "some text") ~=? testP prsInlsTillBlock1 "some text\n\n_emp_",
-            "prsInlsTillBlock1 4" ~: Right [Str "Henry", Space, Str "the", Space, Str "big", Space, Str "bad", Space, Str "wolf"]
-                          ~=? testP prsInlsTillBlock1 "Henry the\nbig bad \nwolf",
-            "prsEndl" ~: Right ()  ~=? testP prsEndl "   \n \n",
-            "prsSpaceNotAtEol" ~: Right Space ~=? testP prsSpaceNotAtEol " i",
-            "(prsSpaceNotAtEol >> testPrsLeftOver)" ~: Right "i" ~=? testP (prsSpaceNotAtEol >> testPrsLeftOver) " i",
-            "prsWord 1" ~: Right (Str "blah") ~=? testP prsWord "blah blah  ",
-            "prsWord 2" ~: Right " blah  " ~=? testP (prsWord >> testPrsLeftOver) "blah blah  ",
+            "lookBack' 1" ~: Right ('s','b') ~=? testP (lookBack' 1 (char 's') (char 's' >> char 'b')) "sb",
+            "lookBack' 2" ~: Right ("ssss",'b') ~=? testP (lookBack' 1 (many . char $ 's') (char 's' >> char 'b')) "ssssb",
+            "lookBack' 3" ~: Right ("ssss",'b') ~=? testP (lookBack' 2 (many . char $ 's') (char 's' >> char 's' >> char 'b')) "ssssb",
 
-            "prsMediumDash" ~: Right (Str "\2013") ~=? testP prsMediumDash "--",
-            "prsLongDash" ~: Right (Str "\2014") ~=? testP prsLongDash "---",
+            "notFollowedBy'  1" ~: Right 'c'
+                ~=? testP (char 'c' >>= (<$ (notFollowedBy . char $ 'b'))) "ca",
+            "notFollowedBy'  2"
+                ~: Right 'c' ~=? testP (char 'c' >>= (<$ (notFollowedBy (mzero :: MyParser Int)))) "ca",
+            "notFollowedBy'  2"
+                ~: Right 'c' ~=? testP (char 'c' >>= (<$ (notFollowedBy (return ())))) "ca",
+            "notFollowedBy'  3"
+                ~: True ~=? matchError (testP (char 'c' >> notFollowedBy (char 'a')) "ca"),
+            "notFollowedBy'  4"
+                ~: Right "a" ~=? testP (char 'c' >> notFollowedBy (char 'b') >> testPrsLeftOver) "ca",
+            "notFollowedBy'  5"
+                ~: Right "ca" ~=? testP (try (char 'c' >> notFollowedBy (char 'a') >> return "") <|>  testPrsLeftOver) "ca",
 
-            "prsHorizRule 1" ~: Right HorizontalRule ~=? testP prsHorizRule "----",
-            "prsHorizRule 2" ~: Right HorizontalRule ~=? testP prsHorizRule "-----",
-            "prsHorizRule 3" ~: Right HorizontalRule ~=? testP prsHorizRule "------",
-            "prsHorizRule 4" ~: Right HorizontalRule ~=? testP prsHorizRule "-------\n",
+            "nonSkipChar 1" ~:  Right 'a' ~=? testP (nonSkipChar 'a') "a",
+            "nonSkipChar 2" ~:  True  ~=? matchError (testPS (defaultParseState {psSkipChars = "a"}) (nonSkipChar 'a') "a"),
+            "nonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many . nonSkipChar $ 'c') "cca",
+            "nonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipChars = "a"}) ((many . nonSkipChar $ 'c')>>testPrsLeftOver) "cca",
 
-            "prsLineBreak 1" ~: Right LineBreak ~=? testP prsLineBreak "\\\\",
+            "anyNonSkipChar 1" ~:  Right 'a' ~=? testP anyNonSkipChar  "a",
+            "anyNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipChars = "a"}) anyNonSkipChar  "a"),
+            "anyNonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many  anyNonSkipChar) "cca",
+            "anyNonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipChars = "a"}) ((many  anyNonSkipChar) >> testPrsLeftOver) "cca",
 
-            "prsEmph 1" ~: Right (Emph [Str "blah"]) ~=? testP prsEmph "_blah_",
+            "oneOfNonSkipChar 1" ~:  Right 'a' ~=? testP (oneOfNonSkipChar "a") "a",
+            "oneOfNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipChars = "a"}) (oneOfNonSkipChar "a") "a"),
+            "oneOfNonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many . oneOfNonSkipChar $ "ca") "cca",
+            "oneOfNonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipChars = "a"}) ((many . oneOfNonSkipChar $ "ca")>>testPrsLeftOver) "cca",
 
-            "prsStrong" ~: Right (Strong [Str "blah"]) ~=? testP prsStrong "*blah*",
+            "noneOfNonSkipChar 1" ~:  Right 'c' ~=? testP (noneOfNonSkipChar "a") "c",
+            "noneOfNonSkipChar 2" ~:  True ~=? matchError (testP  (noneOfNonSkipChar "a") "a"),
+            "noneOfNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipChars = "c"}) (noneOfNonSkipChar "a") "c"),
 
-            "Superscript" ~: Right (Superscript [Str "blah"]) ~=? testP prsSuperScript "^blah^",
+            "escapedChar 1" ~:  Right '*' ~=? testP escapedChar "\\*",
+            "escapedChar 2" ~:  Right '_' ~=? testP escapedChar "\\_",
+            "escapedChar 3" ~:  Right '^' ~=? testP escapedChar "\\^",
+            "escapedChar 4" ~:  Right '+' ~=? testP escapedChar "\\+",
+            "escapedChar 5" ~:  Right '-' ~=? testP escapedChar "\\-",
+            "escapedChar 6" ~:  Right '#' ~=? testP escapedChar "\\#",
+            "escapedChar 7" ~:  Right '\\' ~=? testP escapedChar "\\a",
 
-            "prsInlSpace" ~: Right Space ~=? testP prsInlSpace " ",
-            
-            "prsSubScript" ~: Right (Subscript [Str "blah"]) ~=? testP prsSubScript "~blah~",
+            "spaceChar 1" ~:  Right ' ' ~=? testP spaceChar " ",
+            "spaceChar 2" ~:  Right '\t' ~=? testP spaceChar "\t",
+            "spaceChar 3" ~:  True ~=? matchError (testP spaceChar "\n"),
+            "spaceChar 4" ~:  True ~=? matchError (testP spaceChar "\n\r"),
 
-            "prsInlsTillEol 1" ~: Right [ Subscript[Str "blah"], Str "bleh"] ~=? testP prsInlsTillEol "~blah~bleh",
-            "prsInlsTillEol 2" ~: Right [ Subscript[Str "blah"], Space, Str "bleh"] ~=? testP prsInlsTillEol "~blah~   bleh ",
-            "prsInlsTillEol 3" ~: Right [ Subscript[Str "blah"], Space, Str "bleh"] ~=? testP prsInlsTillEol "~blah~   bleh \nJhonny",
-            "prsInlsTillEol 4" ~: Right " \nJhonny" ~=? testP (prsInlsTillEol >> testPrsLeftOver) "~blah~   bleh \nJhonny",
+            "skipSpaces 1" ~:  Right "" ~=? testP (skipSpaces >> testPrsLeftOver) " ",
+            "skipSpaces 2" ~:  Right () ~=? testP skipSpaces "    \n",
+            "skipSpaces 2" ~:  Right "\n" ~=? testP (skipSpaces >> testPrsLeftOver) "    \n",
+            "skipSpaces 3" ~:  Right "\r\n" ~=? testP (skipSpaces >> testPrsLeftOver) "   \r\n",
 
-            "prsHdng" ~: Right (1, [Str "Henry"]) ~=? (\(Header i _ c) -> (i, c)) <$> testP prsHdng "h1. Henry",
+            "restOfLine 1" ~:  Right () ~=? testP restOfLine "    \n",
+            "restOfLine 2" ~:  Right "" ~=? testP (restOfLine >> testPrsLeftOver) "    \n",
+            "restOfLine 2" ~:  Right "a" ~=? testP (restOfLine >> testPrsLeftOver) "    \na",
 
-            "prsParagraph" ~: Right (Para [Str "Henry", Space, Str "the", Space, Str "big", Space, Str "bad", Space, Str "wolf"])
-                          ~=? testP prsParagraph "Henry the\nbig bad \nwolf",
+            "blankLine 1" ~:  Right () ~=? testP blankLine "    \n",
+            "blankLine 2" ~:  Right "" ~=? testP (blankLine >> testPrsLeftOver) "    \n",
+            "blankLine 2" ~:  Right "a" ~=? testP (blankLine >> testPrsLeftOver) "    \na",
+            "blankLine 4" ~:  True ~=? matchError (testP (anyChar >> blankLine) "a    \n"),
+            "blankLine 5" ~:  Right "a" ~=? testP (anyChar >> restOfLine >> blankLine >> testPrsLeftOver) "a\n    \na",
 
-            "prsParagraph" ~: Right (Para [Str "Henry", Space, Str "the", Space, Str "big", Space, Str "bad", Space, Str "wolf"])
-                           ~=? testP prsParagraph "Henry the\nbig bad \nwolf\n\n",
+            "printChar 1" ~:  Right 'a' ~=? testP printChar  "a",
+            "printChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipChars = "a"}) printChar  "a"),
+            "printChar 3" ~:  True ~=? matchError (testP printChar  " "),
+            "printChar 4" ~:  True ~=? matchError (testP printChar  "\t"),
+            "printChar 5" ~:  True ~=? matchError (testP printChar  "\n"),
+            "printChar 6" ~:  True ~=? matchError (testP printChar  "\r"),
+            "printChar 7" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many  printChar) "cca",
+            "printChar 8" ~:  Right "a" ~=? testPS (defaultParseState {psSkipChars = "a"}) ((many  printChar) >> testPrsLeftOver) "cca",
+            "printChar 9" ~:  Right " a" ~=? testP ((many  printChar) >> testPrsLeftOver) "cc a",
 
-            "prsBulletList" ~: Right (BulletList [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ]  ])
-                            ~=? testP prsBulletList "* Gordon *gordon*\n* Ramsy",
+            "emptyLines 1" ~: Right Null ~=? testP emptyLines "\n\n",
+            "emptyLines 2" ~: Right Null ~=? testP emptyLines "\n \n",
+            "emptyLines 3" ~: Right Null ~=? testP (anyChar >> emptyLines) "a\n",
+            "emptyLines 4" ~: Right Null ~=? testP emptyLines "\n",
+            "emptyLines 5" ~: Right "a" ~=? testP (anyChar >> restOfLine >> emptyLines >> testPrsLeftOver) "a\n    \na",
+            "emptyLines 6" ~: Right "a" ~=? testP (anyChar >> restOfLine >> emptyLines >> testPrsLeftOver) "a\n\n\n    \na",
+
+            "normalWord 1" ~: Right (Str "blah") ~=? testP normalWord "blah blah  ",
+            "normalWord 2" ~: Right " blah  " ~=? testP (normalWord >> testPrsLeftOver) "blah blah  ",
+
+            "mediumDash 1" ~: Right (Str "\2013") ~=? testP mediumDash "--",
+            "mediumDash 2" ~: Right  "a" ~=? testP (mediumDash >> testPrsLeftOver) "--a",
+
+            "longDash 1" ~: Right (Str "\2014") ~=? testP longDash "---",
+            "longDash 2" ~: Right  "a" ~=? testP (longDash >> testPrsLeftOver) "---a",
+
+            "horizRule 1" ~: Right HorizontalRule ~=? testP horizRule "----",
+            "horizRule 2" ~: Right HorizontalRule ~=? testP horizRule "-----",
+            "horizRule 3" ~: Right HorizontalRule ~=? testP horizRule "------",
+            "horizRule 4" ~: Right HorizontalRule ~=? testP horizRule "-------\n",
+
+            "lineBreak 1" ~: Right LineBreak ~=? testP lineBreak "\\\\",
+
+            "emphasis 1" ~: Right (toInline $ emph $ text "blah") ~=? testP emphasis "_blah_",
+            "emphasis 2" ~: Right (toInline $ emph $ text "blah bleh") ~=? testP emphasis "_blah bleh_",
+            "emphasis 3" ~: Right " a" ~=? testP (emphasis >> testPrsLeftOver) "_blah bleh_ a",
+
+            "strong 1" ~: Right (Strong [Str "blah"]) ~=? testP D.strong "*blah*",
+
+            "superscript 1" ~: Right (Superscript [Str "blah"]) ~=? testP D.superscript "^blah^",
+
+            "subscript 1" ~: Right (Subscript [Str "blah"]) ~=? testP D.subscript "~blah~",
+
+            "nonTrailingSpace 1" ~: Right Space ~=? testP nonTrailingSpace " c",
+
+            "heading 1" ~: Right (1, [Str "Henry"]) ~=? (\(Header i _ c) -> (i, c)) <$> testP heading "h1. Henry",
+            "heading 2" ~: Right (1, [Str "Henry"]) ~=? (\(Header i _ c) -> (i, c)) <$> testP heading "h1.Henry",
+
+            "paragraph 1" ~: Right (toBlock $ para . text $ "Henry the\nbig bad \nwolf")
+                          ~=? testP paragraph "Henry the\nbig bad \nwolf",
+
+            -- we drop the trailing spaces
+            "paragraph 2" ~: Right (toBlock $ para . text $ "Henry the\nbig bad \nwolf")
+                           ~=? testP paragraph "Henry the\nbig bad \nwolf\n\n",
+
+            "paragraph 3" ~: True ~=? matchError (testP paragraph "* Gordon *gordon*\n* Ramsy"),
+
+            "bulletlist 1"
+                ~: Right (toBlock $ bulletList $  [ para (text "Gordon " <> (strong . text) "gordon") , para . text $ "Ramsy"])
+                ~=? testP D.bulletList "* Gordon *gordon*\n* Ramsy",
         
-            "prsNumberedList" ~: Right (OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ])
-                            ~=? testP prsNumberedList "# Gordon *gordon*\n# Ramsy",
+            "numberedList 1"
+                ~: Right (toBlock $ olist 1 $
+                                [ para (text "Gordon " <> (strong . text) "gordon")
+                                , para . text $ "Ramsy"])
+                ~=? testP numberedList "# Gordon *gordon*\n# Ramsy",
                 
-            "prsNumberedList 2" ~: Right  [OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ], [ Para [Str "Ramsy"] ] ]]
-                             ~=? testP prsBlocks "# Gordon *gordon*\n# Ramsy",
+            "numberedList 2"
+                ~: Right  [toBlock $ olist 1 $
+                                [ para (text "Gordon " <> (strong . text) "gordon")
+                                , para . text $ "Ramsy"]
+                          ]
+                ~=? testP (many anyBlock) "# Gordon *gordon*\n# Ramsy",
 
-            "prsNumberedList 3" ~: Right [ OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]] ]  ]
-                                         , Header 1 nullAttr [ Str "Ramsy" ]
-                                         ]
-                             ~=? testP prsBlocks "# Gordon *gordon*\nh1. Ramsy",
+            "numberedList 3"
+                ~: Right [ toBlock $ orderedListWith (1, LowerRoman, DefaultDelim) $
+                                     [ para (text "Gordon " <> (strong . text) "gordon") ]
+                         , toBlock $ header 1 (str "Ramsy")
+                         ]
+                ~=? testP (many anyBlock) "# Gordon *gordon*\nh1. Ramsy",
 
-            "prsNumberedList 4" ~: Right (OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon", Space, Strong [Str "gordon"]], OrderedList (1, LowerRoman, DefaultDelim)[ [ Para [Str "Ramsy"] ] ] ]  ])
-                            ~=? testP prsNumberedList "# Gordon *gordon*\n## Ramsy",
+            "numberedList 4"
+                ~: Right (toBlock $ olist 1 $
+                                    [ para (str "Gordon" <> PB.space <> (strong . str $ "gordon"))
+                                      <> (olist 2 $ [para . str $ "Ramsy"])
+                                    ])
+                ~=? testP numberedList "# Gordon *gordon*\n## Ramsy",
 
-            "prsNumberedList 5" ~: Right (OrderedList (1, LowerAlpha, DefaultDelim) [  [ Para [Str "Gordon"] , OrderedList (1, LowerRoman, DefaultDelim)[ [ Para [Str "Ramsy"] ] ] ]
-                                                                                      ,  [ Para [Str "Sally"] ,  OrderedList (1, LowerRoman, DefaultDelim)[ [ Para [Str "Blah"] ] ] ]
-                                                                                     ])
-                            ~=? testP prsNumberedList "# Gordon\n## Ramsy\n# Sally\n## Blah",
+            "numberedList 5"
+                ~: Right (toBlock $ olist 1 $
+                                    [ (para . str $ "Gordon") <> (olist 2 $ [para . str $ "Ramsy"])
+                                    , (para . str $ "Sally") <> (olist 2 $ [para . str $ "Blah"])
+                                    ])
+                ~=? testP  numberedList "# Gordon\n## Ramsy\n# Sally\n## Blah",
 
-            "prsStopList2 1" ~: Right False ~=? testP prsStopList2 "# blah my end",
-            "prsStopList2 2" ~: Right True ~=? testP prsStopList2 "h1. blah my end",
-            "prsStopList2 4" ~: Right True ~=? testP prsStopList2 "--------------------",
-            "prsStopList2 5" ~: Right True ~=? testPS defaultParseState {psDepth = 1, psListPrefix = "#"} prsStopList2 "# blah my end",
+            "imageRaw 1"
+                ~: Right (ImageLink "blah.png" Nothing)
+                ~=? testP imageRaw "!blah.png!",
+            "imageRaw 2"
+                ~: Right (ImageLink "blah.png" (Just "a=b, c=d"))
+                ~=? testP imageRaw "!blah.png|a=b, c=d!",
+            "imageRaw 3"
+                ~: Right (ImageLink "http://blah.blah.blah.com:8090/secure/attachment/12175/ATSP3_CFI_Gathered%20Media_Lynx_Helicopter_Instrumentation_InterseatCon_CDF.png" (Just "caption"))
+                ~=? testP imageRaw "!http://blah.blah.blah.com:8090/secure/attachment/12175/ATSP3_CFI_Gathered%20Media_Lynx_Helicopter_Instrumentation_InterseatCon_CDF.png|caption!",
 
-            "prsTable" ~: Right ( Table [Str ""] [AlignLeft,AlignLeft] [0.0,0.0] [ [ Para [Str "Gordon"]], [ Para [Str "Ramsy"]] ]
-                                               [ [[ Para [Str "Sally"]], [Para [Str "Storm"]] ]
-                                               , [[ Para [Str "Blah"]], [Para [Str "Bleh"]] ]
-                                               ])
-                            ~=? testP prsTable "||Gordon||Ramsy||\n|Sally|Storm|\n|Blah|Bleh|",
+            "imagesFromDescription 1"
+                ~: [ImageLink {imgLink = "bla", imgAttrs = Nothing}]
+                ~=? imagesFromDescription "gordon !bla! ramsy",
+            "imagesFromDescription 2"
+                ~: [ImageLink {imgLink = "bla", imgAttrs = Nothing}, ImageLink {imgLink = "ble", imgAttrs = Nothing}]
+                ~=? imagesFromDescription "gordon !bla! ramsy!ble!",
 
-            "prsImageRaw 1" ~: Right (ImageLink "blah.png" Nothing) ~=? testP prsImageRaw "!blah.png!",
+            "replaceImageLinks 1"
+                ~: "gordon !Sally! ramsy"
+                ~=? replaceImageLinks (const ImageLink {imgLink = "Sally", imgAttrs = Nothing}) "gordon !bla! ramsy",
 
-            "prsImageRaw 2" ~: Right (ImageLink "blah.png" (Just "a=b, c=d")) ~=? testP prsImageRaw "!blah.png|a=b, c=d!",
-
-            "prsImageRaw 3" ~: Right (ImageLink "http://srv1.za.5dt.com:8090/secure/attachment/12175/ATSP3_CFI_Gathered%20Media_Lynx_Helicopter_Instrumentation_InterseatCon_CDF.png" (Just "caption")) ~=? testP prsImageRaw "!http://srv1.za.5dt.com:8090/secure/attachment/12175/ATSP3_CFI_Gathered%20Media_Lynx_Helicopter_Instrumentation_InterseatCon_CDF.png|caption!",
-
-            "imagesFromDescription 1" ~: [ImageLink {imgLink = "bla", imgAttrs = Nothing}] ~=? imagesFromDescription "gordon !bla! ramsy",
-            "imagesFromDescription 2" ~: [ImageLink {imgLink = "bla", imgAttrs = Nothing}, ImageLink {imgLink = "ble", imgAttrs = Nothing}] ~=? imagesFromDescription "gordon !bla! ramsy!ble!",
-
-            "replaceImageLinks 1" ~: "gordon !Sally! ramsy" ~=? replaceImageLinks (const ImageLink {imgLink = "Sally", imgAttrs = Nothing}) "gordon !bla! ramsy",
-
-            "prsTbl" ~:
+            "table 1"
+                ~: Right ( toBlock $ tbl 2 [ (para . str $ "Gordon"), (para . str $ "Ramsy")] 
+                                           [ [(para . str $ "Sally"), (para . str $ "Storm")]
+                                           , [(para . str $ "Blah"), (para . str $ "Bleh")]
+                                           ]
+                         )
+                ~=? testP D.table "||Gordon||Ramsy||\n|Sally|Storm|   \n|Blah|Bleh|",
+            "table 2" ~:
                     Right (toList $ header 4 . text <| "Requirements" <>
-                                        table (str "") [(AlignLeft, 0), (AlignLeft, 0)]
+                                          tbl 2
                                           [para . text <| "Requirement",  para . text <| "Description"]
                                           [
                                           [para . text <| "LYNX-1008",  para . text <| "DVS Control"],
@@ -178,8 +295,8 @@ descriptionParserTests = test
                                           [para . text <| "LYNX-473",  para . text <| "DVS Instructor Events and Degraded Performance"]
                                           ]
                            <> header 4 . text <| "Test Inputs"
-                           <> orderedListWith (1, LowerAlpha, DefaultDelim) [para . text <| "ATSTest application"
-                                                                            ,para . text <| "Script : ATS\\Tests\\ATSTest\\SuperLynxTestScripts\\Sensors\\LoadSuperLynxDopplerVelocitySensor.lua"]
+                           <> olist 1 [ para . text <| "ATSTest application"
+                                      , para . text <| "Script : ATS\\Tests\\ATSTest\\SuperLynxTestScripts\\Sensors\\LoadSuperLynxDopplerVelocitySensor.lua"]
                            )
                     ~=? testP prsDesc ("h4. Overview\n"
                                     ++ "This test verifies the Doppler Velocity Sensor simulation.\n\n"
@@ -201,6 +318,21 @@ descriptionParserTests = test
             "escaped" ~:
                     Right (toList $ para (text "[140 *70*" <> PB.space <> (strong . text $ "dBm-")))
                     ~=? testP prsDesc "\\[140 \\*70\\* *dBm\\-*",
+
+            -- note file encoding must be unix ie new line characters should be \n and not \r or \r\n
+            "immediate table trailing whitespace" ~:
+                    Right (toList $ para . text <| "Blah bleh:"
+                           <> tbl 2
+                                    [para . text <| "DSC",  para . text <| "REQ"]
+                                    [
+                                    [para . text <| "cell on1",  para . text <| "ERSL"],
+                                    [para . text <| "cell two",  para . text <| "ERSL"]
+                                    ]
+                           )
+                    ~=? testP prsDesc (    "Blah bleh: \n"
+                                        ++ "||DSC||REQ|| \n"
+                                        ++ "|cell on1|ERSL| \n"
+                                        ++ "|cell two|ERSL| \n"),
 
             "dummy end" ~: True ~=? True
         ]
