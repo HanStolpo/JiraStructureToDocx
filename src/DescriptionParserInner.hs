@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables, TupleSections, BangPatterns #-}
  -- GHC_STATIC_OPTION_i=../src:../testsuite
 module DescriptionParserInner where
 
@@ -23,6 +23,9 @@ traceMsgS msg a = trace ("\n" ++ msg ++ "{" ++ show a ++ "}") a
 traceMS :: Show a => String -> a -> MyParser a
 traceMS msg a = traceM' (msg ++ "{" ++ show a ++ "}") >> return a
 
+traceMS' :: Show a => String -> a -> MyParser ()
+traceMS' msg = void . traceMS msg
+
 traceM :: String -> a -> MyParser a
 traceM msg a = traceM' msg >> return a
 
@@ -35,15 +38,14 @@ traceM' msg = getState >>= (\s -> return $! trace ("\n" ++ msg) s) >>= setState
 data ParseState = PS
     {
         psLevel         :: Int,
-        psDepth         :: Int,
-        psListPrefix    :: String,
         psSkipChars     :: String,
-        psEncStack     :: [EncType],
-        psInlStack      :: [MyParser Inline]
+        psEncStack      :: [EncType],
+        psInlStack      :: [MyParser Inline],
+        psBlockInlStack :: [Inline]
     }
 
 defaultParseState :: ParseState
-defaultParseState = PS {psLevel = 0, psDepth = 0, psListPrefix = "", psSkipChars = "", psEncStack = [], psInlStack = [inlineEol]}
+defaultParseState = PS {psLevel = 0, psSkipChars = "", psEncStack = [], psInlStack = [inlineEol], psBlockInlStack = []}
 
 type MyParser = Parsec String ParseState
 
@@ -129,7 +131,7 @@ manyEndHist  :: String          -- Skip chars
              -> Int             -- samples to look back for look back parser
              -> MyParser ()     -- lookBack parser
              -> MyParser ()     -- Pass end parser
-             -> MyParser ()     -- Fail end parser
+             -> MyParser String -- Fail end parser
              -> MyParser a      -- inner parser
              -> MyParser [a]
 manyEndHist s h l p f i = do
@@ -139,8 +141,8 @@ manyEndHist s h l p f i = do
         scan as a = let as' = a:as in try (endPass as') <|> endCont as'
         endPass as = l >> p >> return as
         endCont as = count h anyToken >> lookBack h i' (scan as)
-        guardFail = ((False <$ (lookAhead . try) f) <|> return True) >>= guard
-        i'  = guardFail >> i
+        guardFail = (((False,) <$> (lookAhead . try) f) <|> return (True,"")) >>= \(c,e) -> if c then return () else unexpected e
+        i'  = guardFail >> try i
     as <- lookBack h i' (scan [])
     modifyState $ \st -> st {psSkipChars = sWas}
     return (reverse as)
@@ -157,17 +159,21 @@ lookBack h p l = do
     (src, pos) <- (,) <$> getInput <*> getPosition
     a <- p
     (srcO, posO) <- (,) <$> getInput <*> getPosition
-    let (src', pos') = mv src pos posO h
-    setInput src' >> setPosition pos'
-    b <- l a
-    pos'' <- getPosition
-    when (pos'' < posO) (setInput srcO >> setPosition posO)
-    return b
-    where
-        mv [] _ _ _                    = error "lookBack - input exhausted before catching up"
-        mv sh ph pc _      | ph == pc  = (sh, ph)
+    let
+        -- mv [] _ _ _                   = error $ "lookBack - input exhausted before catching up\n:" ++ show src ++ "\n" ++ show pos ++ "\n" ++ show srcO ++ "\n" ++ show posO
+        mv [] ph _ _                   = ([],ph, Just $ "lookBack - input exhausted before catching up\n:" ++ show src ++ "\n" ++ show pos ++ "\n" ++ show srcO ++ "\n" ++ show posO)
+        mv sh ph pc _      | ph == pc  = (sh, ph, Nothing)
         mv (c:sh) ph pc h' | h' <= 0   = mv sh (updatePosChar ph c) pc 0
         mv sh@(c:_) ph pc h'           = mv sh (updatePosChar ph c) pc (h' - 1)
+        (src', pos', err) = mv src pos posO h
+    case err of
+        Just msg -> unexpected msg
+        Nothing -> do
+                    setInput src' >> setPosition pos'
+                    b <- l a
+                    pos'' <- getPosition
+                    when (pos'' < posO) (setInput srcO >> setPosition posO)
+                    return b
 
 lookBack' :: Int               -- The legth of the history
           -> MyParser a        -- Parser applied normally
@@ -197,7 +203,10 @@ noneOfNonSkipChar :: String -> MyParser Char
 noneOfNonSkipChar sy = psSkipChars <$> getState >>= \sn -> satisfy (\x -> notElem x sn && notElem x sy)
 
 escapedChar :: MyParser Char
-escapedChar =  try (char '\\' >> oneOf "*_^~+-#![]|?{") <|> anyNonSkipChar
+escapedChar =  fst <$> escapedChar'
+
+escapedChar' :: MyParser (Char, Bool)
+escapedChar' =  try (char '\\' >> ((,True) <$> oneOf "*_^~+-#![]|?{")) <|> ((,False) <$> anyNonSkipChar)
 
 spaceChar :: MyParser Char
 spaceChar = try (anyChar >>= \c -> if C.isSpace  c && notElem c "\r\n" then return c else mzero)
@@ -232,7 +241,12 @@ notFollowedBy' p = try $ ((False <$ try p) <|> return True) >>= guard
 ---------------------------------------------------------------------------------------------
 
 anyBlock :: MyParser Block
-anyBlock = choice $ map try [emptyLines, table, heading, horizRule, numberedList, bulletList, paragraph]
+anyBlock = oneOfBlocks [emptyLines, table, heading, horizRule, numberedList, bulletList, paragraph]
+
+oneOfBlocks :: [MyParser Block] -> MyParser Block
+oneOfBlocks bs = choice . map perB $ bs
+    where
+        perB bp = try (modifyState (\s -> s{psBlockInlStack = []}) >> bp) 
 
 emptyLines :: MyParser Block
 emptyLines = Null <$ many1 blankLine
@@ -249,13 +263,13 @@ table = do
     return $  Table cap aln colw hs rs
 
 tableStart :: MyParser ()
-tableStart = ((optional . try $ eol) >> bol >> skipSpaces >> void (string "||")) <?> "tableStart"
+tableStart = ((optional . try $ eol) >> bol >> skipSpaces >> void (string "||")) <?> "tableStart" 
 
 tableRowStart :: MyParser ()
 tableRowStart = bol >> skipSpaces >> void (string "|")
 
 tableCells :: String -> MyParser [TableCell]
-tableCells s = withInline inlineNoEol . nonReEntrant EncTableCell $ manyTill (manyEnd "|" e anyBlock) restOfLine
+tableCells s = withInline inlineNoEol . nonReEntrant EncTableCell $ manyTill (manyEnd "|" e anyBlock) restOfLine 
     where 
         e = try (skipSpaces >> string s >> optional (try restOfLineNotEol)) <|> try restOfLineNotEol
 
@@ -263,7 +277,7 @@ tableRows :: MyParser [[TableCell]]
 tableRows = withInline inlineNoEol . nonReEntrant EncTableRow $ r
     where
         r = manyEnd "" er (tableRowStart >> tableCells "|")
-        er = (try tableRowStart >> mzero) <|> identity
+        er = eof <|> (lookAhead . try $ (bol >> skipSpaces >> (try eol <|> try eof <|> void (noneOfNonSkipChar "|"))))
 
 heading :: MyParser Block
 heading = psLevel <$> getState >>= \l -> headingStart >>= \d -> Header (d + l) nullAttr <$> h
@@ -283,7 +297,7 @@ bulletList :: MyParser Block
 bulletList = anyList ListB
 
 listFmt :: Int -> ListNumberStyle
-listFmt d = case d of
+listFmt d = case d `mod` 4 of
     0 -> LowerAlpha
     1 -> LowerRoman
     2 -> UpperAlpha
@@ -291,7 +305,7 @@ listFmt d = case d of
     _ -> error "listFmt - should never happen"
 
 listContent :: MyParser Block
-listContent = choice $ map try [numberedList, bulletList, paragraph, table]
+listContent = oneOfBlocks [numberedList, bulletList, paragraph, table]
 
 data ListType = ListB | ListN deriving (Eq, Show)
 anyListStart :: MyParser (ListType, String)
@@ -331,7 +345,7 @@ anyList t = do
             
 
 paragraph :: MyParser Block
-paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para <$> manyEnd1' "" e i >>= (<$ (optional . try $ restOfLine))
+paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . collapseInlines <$> manyEnd1' "" e i >>= (<$ (optional . try $ restOfLine))
     where
         e = choice $ map (lookAhead . try) [ void blankLine
                                            , void tableStart
@@ -343,33 +357,63 @@ paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para <$> manyEnd1' "" e i
 ---------------------------------------------------------------------------------------------
 -- Inline parsing
 ---------------------------------------------------------------------------------------------
+inlineNoEolList :: [MyParser Inline]
+inlineNoEolList = [ longDash <?> "longDash"
+                  , mediumDash <?> "mediumDash"
+                  , emphasis <?> "emphasis"
+                  , strong <?> "strong"
+                  , citation <?> "citation"
+                  , deleted <?> "deleted"
+                  , inserted <?> "inserted"
+                  , superscript <?> "superscript"
+                  , subscript <?> "subscript"
+                  , monospaced <?> "monospaced"
+                  , image <?> "image"
+                  , lineBreak <?> "lineBreak"
+                  , punctuation <?> "punctuation"
+                  , normalWord <?> "normalWord"
+                  , nonTrailingSpace <?> "nonTrailingSpace"
+                  ]
+
 inlineNoEol :: MyParser Inline
-inlineNoEol = choice $ map try [longDash, mediumDash, emphasis, strong, citation, deleted, inserted, superscript,
-                           subscript, monospaced, image, lineBreak,  normalWord, nonTrailingSpace]
+inlineNoEol = oneOfInlines inlineNoEolList
 
 inlineEol :: MyParser Inline
-inlineEol = choice $ map try [longDash, mediumDash, emphasis, strong, citation, deleted, inserted, superscript,
-                           subscript, monospaced, image, lineBreak,  normalWord, nonTrailingSpace, inlEol]
+inlineEol = oneOfInlines (inlineNoEolList ++ [inlEol <?> "inlEol"])
+
+collapseInlines :: [Inline] -> [Inline]
+collapseInlines = foldr f [] 
+    where 
+        f (Str !s1) (Str !s2:is')= Str (s1++s2):is'
+        f i is' = i:is'
+
+oneOfInlines :: [MyParser Inline] -> MyParser Inline
+oneOfInlines  = try . perI
+    where
+        --perI ip = try ((try ip >>= \i -> i <$ modifyState (\s -> s{psBlockInlStack = i:psBlockInlStack s})) >>= traceMS "inline")
+        perI [] = mzero
+        perI (i:is) = try (i >>= success) <|> try (perI is) 
+        success i = modifyState (\s -> s{psBlockInlStack = i:psBlockInlStack s}) >> return i
+
+
 
 inlEol :: MyParser Inline
-inlEol =  Space <$ try (skipSpaces >> eol) >>= (<$ notFollowedBy (try  failInline' <|> try restOfLine))
+inlEol =  Space <$ try (skipSpaces >> eol) >>= (<$ notFollowedBy (failInlineTry <|> try ("eol" <$ restOfLine)))
 
-failInline :: MyParser ()
-failInline = choice $ map (lookAhead . try) [ void blankLine
-                                            , void tableStart
-                                            , void headingStart
-                                            , void anyListStart
-                                            , void horizRule
-                                            , void eof
-                                            ]
-failInline' :: MyParser ()
-failInline' = choice $ map try  [ void blankLine
-                                , void tableStart
-                                , void headingStart
-                                , void anyListStart
-                                , void horizRule
-                                , void eof
-                                ]
+failInlineLookAhead :: MyParser String
+failInlineLookAhead = choice $ map (lookAhead . try) failInlineList
+
+failInlineTry :: MyParser String
+failInlineTry = choice $ map try failInlineList
+
+failInlineList :: [MyParser String]
+failInlineList = [ void blankLine >> return "blankLine"
+                 , void tableStart >> return "tableStart"
+                 , void headingStart >> return "headingStart"
+                 , void anyListStart >> return "anyListStart"
+                 , void horizRule >> return "horizRule"
+                 , void eof >> return "eof"]
+                                
 
 addLineBreakBeforeAfterImages :: [Inline] -> MyParser [Inline]
 addLineBreakBeforeAfterImages ls = return $ foldr f [] ls
@@ -380,11 +424,15 @@ addLineBreakBeforeAfterImages ls = return $ foldr f [] ls
 inlineFormat :: EncType                 -- Type
              -> String                  -- Delimeter
              -> MyParser [Inline]
-inlineFormat t s = let
-    h = length s
-    delim = string s 
-    in getInline >>= \i -> nonReEntrant t (delim >> manyEndHist s h (void printChar) (void delim) failInline i)
-        
+inlineFormat t s = inlineFormat' t s s
+
+inlineFormat':: EncType                 -- Type
+             -> String                  -- Delimeter
+             -> String                  -- Delimeter
+             -> MyParser [Inline]
+inlineFormat' t s e = let
+        ps = try (matchedSpaceOrFirst >>= guard >> fmap (++) (string s) <*> fmap (:[])(lookAhead . try $ printChar))
+        in try(getInline >>= \i ->  collapseInlines <$> nonReEntrant t (ps >> manyEndHist s (length s) (void printChar) (try . void . string $ e) (choice . map try $ (ps:failInlineList)) i) )
 
 inlineVerbatim :: EncType               -- Type
              -> String                  -- Delimeter
@@ -403,8 +451,7 @@ inlineVerbatim' t s e = let
     in nonReEntrant t (string s >> manyEndHist e h l end mzero inner)
 
 nonTrailingSpace :: MyParser Inline
---nonTrailingSpace = Space <$ (many1 spaceChar  >> notFollowedBy (try eol <|> try eof <|> try failInline'))
-nonTrailingSpace = Space <$ (many1 spaceChar  >> (lookAhead . try) printChar)
+nonTrailingSpace = Space <$ (many1 spaceChar  >> (lookAhead . try) (anyChar >>= \c -> if C.isSpace c then mzero else return c))
 
 -- _emphasis_
 emphasis :: MyParser Inline
@@ -432,29 +479,65 @@ subscript = Subscript <$> inlineFormat EncSub "~"
 
 -- ??citation??
 citation :: MyParser Inline
-citation = inlineVerbatim EncCite "??" >>= \s -> return $ Cite [Citation s [] [] NormalCitation 0 0] [Str s]
+citation = Emph . (Str "\2014":) <$> inlineFormat EncCite "??"
 
---  -- {{monospaced}}
+-- {{monospaced}}
 monospaced :: MyParser Inline
-monospaced = Code nullAttr <$> inlineVerbatim' EncCite "{{" "}}"
+monospaced = trans . Span nullAttr <$> inlineFormat' EncMono "{{" "}}"
+    where
+        trans LineBreak         = LineBreak
+        trans Space             = Space
+        trans a@(Code _ _)      = a
+        trans a@(Math _ _)      = a
+        trans a@(RawInline _ _) = a
+        trans a@(Note _ )       = a
+        trans (Str s)           = Code nullAttr s
+        trans (Emph is)         = Emph . map trans $ is
+        trans (Strong is)       = Strong . map trans $ is
+        trans (Strikeout is)    = Strikeout . map trans $ is
+        trans (Superscript is)  = Superscript . map trans $ is
+        trans (Subscript is)    = Subscript . map trans $ is
+        trans (SmallCaps is)    = SmallCaps . map trans $ is
+        trans (Quoted q is)     = Quoted q . map trans $ is
+        trans (Cite c is)       = Cite c . map trans $ is
+        trans (Link is t)       = (`Link` t) . map trans $ is
+        trans (Image is t)      = (`Image` t) . map trans $ is
+        trans (Span a is)       = Span a . map trans $ is
 
 -- \\ line break
 lineBreak :: MyParser Inline
 lineBreak = LineBreak <$ (string "\\\\" >> (notFollowedBy . try) (string "\\"))
 
+matchedSpaceOrFirst :: MyParser Bool
+matchedSpaceOrFirst = chk . psBlockInlStack <$> getState
+    where 
+    chk []        = True
+    chk (Space:_) = True
+    chk _         = False
 
 -- -- medium dash en dash U+2013
 mediumDash :: MyParser Inline
-mediumDash =  Str "\2013" <$ string "--"
+mediumDash =  Str "\2013" <$ (matchedSpaceOrFirst >>= guard >> string "--" >> lookAhead ((try . void) spaceChar <|> void failInlineTry))
 
 -- --- long dash em dash U+2014
 longDash :: MyParser Inline
-longDash = Str "\2014" <$ string "---"
+longDash = Str "\2014" <$ (matchedSpaceOrFirst >>= guard >> string "---" >> lookAhead ((try . void) spaceChar <|> void failInlineTry))
 
 -- any normal word
 normalWord :: MyParser Inline
-normalWord = Str <$> many1 (printChar >>= (<$ (notFollowedBy . try $ failInline)))
+normalWord = Str <$> many1 (try (printChar >>= (\c -> if C.isAlphaNum c then return c else mzero)))
 
+punctuation :: MyParser Inline
+punctuation = Str <$> do
+    b <- matchedSpaceOrFirst
+    let
+        chk (c, _)      | C.isAlphaNum c         = mzero
+        chk (c, _)      | C.isSpace c            = mzero
+        chk (c, True)                            = return c
+        chk (c, False)  | b && c `elem` "{?"     = notFollowedBy (try (nonSkipChar c >> printChar)) >> return c
+        chk (c, False)  | b && c `elem`  "_*-+~" = notFollowedBy (try printChar) >> return c
+        chk (c, _)                               = return c
+    many1 (try (escapedChar' >>=  chk))
 
 image :: MyParser Inline
 image = do
