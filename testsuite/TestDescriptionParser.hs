@@ -310,21 +310,41 @@ descriptionParserTests = test
                                     ++ "# Script : ATS\\Tests\\ATSTest\\SuperLynxTestScripts\\Sensors\\LoadSuperLynxDopplerVelocitySensor.lua"
                                     ),
                 
-            "minus no strike through" ~:
-                    Right (toList $ para (text "-140 to -70 dBm" <> PB.space <> (strikeout . text $ "strike through")))
-                    ~=? testP prsDesc "-140 to -70 dBm -strike through-",
+            "minus no strike through 1" ~:
+                    Right (toBlock $ para (text "-140 to -70 dBm" <> PB.space <> (strikeout . text $ "strike through")))
+                    ~=? testP paragraph "-140 to -70 dBm -strike through-",
+
+            "minus no strike through 2" ~:
+                    Right (toInline . str $ "-140 to -70 dBm -strike through-")
+                    ~=? testP (deleted <|> (toInline . str <$> testPrsLeftOver)) "-140 to -70 dBm -strike through-",
+
+            "minus no strike through 3" ~:
+                    Right (toBlock $ para (text "-140 to -70 dBm" <> PB.space <> (strikeout . text $ "strike through")))
+                    ~=? testP (Para . collapseInlines <$> sequence 
+                                                        [ punctuation <?> "a"
+                                                        , normalWord <?> "b"
+                                                        , nonTrailingSpace <?> "c"
+                                                        , normalWord <?> "d"
+                                                        , nonTrailingSpace <?> "e"
+                                                        , punctuation <?> "f"
+                                                        , normalWord <?> "g"
+                                                        , nonTrailingSpace <?> "h"
+                                                        , normalWord <?> "i"
+                                                        , nonTrailingSpace <?> "j"
+                                                        , deleted <?> "k"
+                                                        ]) "-140 to -70 dBm -strike through-",
 
             "no strike through"
                 ~: Right (toList $ para (text "FIRE WARNING - TEST switch is activated (LYNX-350)"))
                 ~=? testP prsDesc "FIRE WARNING - TEST switch is activated (LYNX-350)",
 
             "no dash mono 1"
-                ~: Right (toList $ para (str "(ie, ‘--- ---’)"))
-                ~=? testP prsDesc "(ie, ‘{{--- ---}}’)",
+                ~: Right [Para [Str "(ie,",Space,Str "'",Span ("",[],[]) [Code ("",[],[]) "---",Space,Code ("",[],[]) "---"],Str "')"]]
+                ~=? testP prsDesc "(ie, '{{--- ---}}')",
             
             "no dash mono 2"
-                ~: Right (toList $ para (str "(ie, '---')"))
-                ~=? testP prsDesc "(ie, ‘{{---}}’)",
+                ~: Right [Para [Str "(ie,",Space,Str "'",Span ("",[],[]) [Code ("",[],[]) "---"],Str "')"]]
+                ~=? testP prsDesc "(ie, '{{---}}')",
 
             "escaped" ~:
                     Right (toList $ para (text "[140 *70*" <> PB.space <> (strong . text $ "dBm-")))

@@ -30,7 +30,7 @@ traceM :: String -> a -> MyParser a
 traceM msg a = traceM' msg >> return a
 
 traceM' :: String -> MyParser ()
-traceM' msg = getState >>= (\s -> return $! trace ("\n" ++ msg) s) >>= setState
+traceM' msg = getState >>= (\s -> return $! trace ('\n' : msg) s) >>= setState
 
 ---------------------------------------------------------------------------------------------
 -- Enclosed parsing
@@ -141,7 +141,7 @@ manyEndHist s h l p f i = do
         scan as a = let as' = a:as in try (endPass as') <|> endCont as'
         endPass as = l >> p >> return as
         endCont as = count h anyToken >> lookBack h i' (scan as)
-        guardFail = (((False,) <$> (lookAhead . try) f) <|> return (True,"")) >>= \(c,e) -> if c then return () else unexpected e
+        guardFail = (((False,) <$> (lookAhead . try) f) <|> return (True,"")) >>= \(c,e) -> unless c $  unexpected e
         i'  = guardFail >> try i
     as <- lookBack h i' (scan [])
     modifyState $ \st -> st {psSkipChars = sWas}
@@ -431,8 +431,9 @@ inlineFormat':: EncType                 -- Type
              -> String                  -- Delimeter
              -> MyParser [Inline]
 inlineFormat' t s e = let
-        ps = try (matchedSpaceOrFirst >>= guard >> fmap (++) (string s) <*> fmap (:[])(lookAhead . try $ printChar))
-        in try(getInline >>= \i ->  collapseInlines <$> nonReEntrant t (ps >> manyEndHist s (length s) (void printChar) (try . void . string $ e) (choice . map try $ (ps:failInlineList)) i) )
+        sc = s ++ e
+        ps = try (matchedPuncSpaceOrFirst >>= guard >> fmap (++) (string s) <*> fmap (:[])(lookAhead . try $ printChar))
+        in try(getInline >>= \i ->  collapseInlines <$> nonReEntrant t (ps >> manyEndHist sc 1 (void printChar) (try . void . string $ e) (choice . map try $ (ps:failInlineList)) i) )
 
 inlineVerbatim :: EncType               -- Type
              -> String                  -- Delimeter
@@ -451,7 +452,7 @@ inlineVerbatim' t s e = let
     in nonReEntrant t (string s >> manyEndHist e h l end mzero inner)
 
 nonTrailingSpace :: MyParser Inline
-nonTrailingSpace = Space <$ (many1 spaceChar  >> (lookAhead . try) (anyChar >>= \c -> if C.isSpace c then mzero else return c))
+nonTrailingSpace = Space <$ (many1 spaceChar  >> (lookAhead . try) (anyNonSkipChar >>= \c -> if C.isSpace c then mzero else return c))
 
 -- _emphasis_
 emphasis :: MyParser Inline
@@ -515,6 +516,18 @@ matchedSpaceOrFirst = chk . psBlockInlStack <$> getState
     chk (Space:_) = True
     chk _         = False
 
+matchedPuncSpaceOrFirst :: MyParser Bool
+matchedPuncSpaceOrFirst = chk . psBlockInlStack <$> getState
+    where 
+    chk []                              = True
+    chk (Space:_)                       = True
+    chk (Str []:_)                      = False
+    chk (Str s:_) | isPunc . last $ s   = True
+    chk _                               = False
+    isPunc c | C.isAlphaNum c = False
+             | C.isSpace c    = False
+             | otherwise      = True
+
 -- -- medium dash en dash U+2013
 mediumDash :: MyParser Inline
 mediumDash =  Str "\2013" <$ (matchedSpaceOrFirst >>= guard >> string "--" >> lookAhead ((try . void) spaceChar <|> void failInlineTry))
@@ -529,15 +542,20 @@ normalWord = Str <$> many1 (try (printChar >>= (\c -> if C.isAlphaNum c then ret
 
 punctuation :: MyParser Inline
 punctuation = Str <$> do
-    b <- matchedSpaceOrFirst
     let
         chk (c, _)      | C.isAlphaNum c         = mzero
         chk (c, _)      | C.isSpace c            = mzero
         chk (c, True)                            = return c
-        chk (c, False)  | b && c `elem` "{?"     = notFollowedBy (try (nonSkipChar c >> printChar)) >> return c
-        chk (c, False)  | b && c `elem`  "_*-+~" = notFollowedBy (try printChar) >> return c
+        chk (c, False)  | c `elem` "{?"     = notFollowedBy (try (nonSkipChar c >> printChar)) >> return c
+        chk (c, False)  | c `elem`  "_*-+~" = notFollowedBy (try printChar) >> return c
         chk (c, _)                               = return c
-    many1 (try (escapedChar' >>=  chk))
+        
+        fstChk c      | C.isAlphaNum c   = mzero
+        fstChk c      | C.isSpace c      = mzero
+        fstChk c                         = return c
+    a  <- try(escapedChar >>= fstChk)
+    as <- many (try (escapedChar' >>=  chk))
+    return (a:as)
 
 image :: MyParser Inline
 image = do
