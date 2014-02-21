@@ -10,6 +10,7 @@ import qualified Data.ByteString.Lazy as L
 {-import qualified Data.ByteString.Lazy.Char8 as L8-}
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString as BW8
+import Data.Text (Text)
 import Network (withSocketsDo)
 import Data.Maybe
 import Data.Conduit.Binary (sinkFile)
@@ -21,7 +22,7 @@ import Data.Data
 import Control.Monad.Error
 import GHC.Generics
 import Control.Applicative
-import qualified Data.Attoparsec.ByteString.Char8 as AP
+import qualified Data.Attoparsec.Text as AP
 import Debug.Trace
 import Text.PrettyPrint.GenericPretty as GP
 {-import Text.JSON as JS-}
@@ -60,9 +61,9 @@ fetchHierarchy opts = withSocketsDo $ runResourceT $ do
     liftIO $ putStrLn "Localising images"
     let images = extractImages hierarchy
     imagesLoc <- localizeImages manager usrn pwd baseUrl (dropFileName . optHierarchyFile $ opts) images
-    let hierarchy' = replaceImagesUri imagesLoc hierarchy
+    let hierarchy'' = replaceImagesUri imagesLoc hierarchy
     liftIO $ putStrLn "Writing out hierarchy file"
-    liftIO $ BW8.writeFile (optHierarchyFile  opts) . YAML.encode $ hierarchy'
+    liftIO $ BW8.writeFile (optHierarchyFile  opts) . YAML.encode $ hierarchy''
     return ()
 
 ---------------------------------------------------------------------------
@@ -72,7 +73,7 @@ data JsForest = JsForest
         {-jsfStructure :: Int,           -- The structure ID-}
         {-jsfVersion :: Int,             -- The version-}
         {-jsFroot :: Maybe Int,          -- The optional root ID-}
-        jsfFormula :: BW8.ByteString   -- The structure forest formula
+        jsfFormula :: Text               -- The structure forest formula
     } 
     deriving (Data, Typeable, Show, Generic)
 
@@ -115,7 +116,7 @@ decodeForest s = do
       return $ buildForest listIdDepth
  
 -- Decode the forest formula into list of (issueId, issueDepth) pairs
-decodeForestFormula :: Monad m => BW8.ByteString -> m [(Int, Int)]
+decodeForestFormula :: Monad m => Text -> m [(Int, Int)]
 decodeForestFormula s = 
     case (r :: Either String [(Int, Int)]) of 
         Left e -> fail e
@@ -161,7 +162,7 @@ forestToHierarchy :: (MonadBaseControl IO m, MonadResource m) =>
                      -> String
                      -> Forest
                      -> m IssueHierarchy
-forestToHierarchy manager usrn pwd baseUrl forest = do
+forestToHierarchy manager usrn pwd baseUrl forest =
     case ftIssueId forest of
         Just i -> forestToHierarchyIssue manager usrn pwd baseUrl forest i
         _ -> forestToHierarchyNoIssue manager usrn pwd baseUrl forest
