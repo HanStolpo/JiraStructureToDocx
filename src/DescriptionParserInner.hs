@@ -38,14 +38,14 @@ traceM' msg = getState >>= (\s -> return $! trace ('\n' : msg) s) >>= setState
 data ParseState = PS
     {
         psLevel         :: Int,
-        psSkipChars     :: String,
-        psEncStack      :: [EncType],
+        psSkipCharsP    :: [MyParser ()],
+        psEncStack      :: [(EncType, Bool)],
         psInlStack      :: [MyParser Inline],
         psBlockInlStack :: [Inline]
     }
 
 defaultParseState :: ParseState
-defaultParseState = PS {psLevel = 0, psSkipChars = "", psEncStack = [], psInlStack = [inlineEol], psBlockInlStack = []}
+defaultParseState = PS {psLevel = 0, psSkipCharsP = [], psEncStack = [], psInlStack = [inlineEol], psBlockInlStack = []}
 
 type MyParser = Parsec String ParseState
 
@@ -56,10 +56,10 @@ type MyParser = Parsec String ParseState
 data EncType = EncStrong | EncEmph | EncSub | EncSup | EncDel | EncIns | EncTable | EncTableCell | EncTableRow | EncList String | EncPara | EncCite | EncMono | EncImage deriving (Show, Eq, Ord)
 
 isInEnc :: EncType -> MyParser Bool
-isInEnc t =  isJust . find (t==) . psEncStack <$> getState
+isInEnc t =  isJust . find ((t==) . fst) . psEncStack <$> getState
 
 pushEnc :: EncType -> MyParser ()
-pushEnc e = modifyState $ \st -> st {psEncStack = e : psEncStack st}
+pushEnc e = modifyState $ \st -> st {psEncStack = (e,True) : psEncStack st}
 
 popEnc :: MyParser ()
 popEnc = modifyState $ \st -> st {psEncStack = pop . psEncStack $ st}
@@ -67,8 +67,19 @@ popEnc = modifyState $ \st -> st {psEncStack = pop . psEncStack $ st}
         pop [] = []
         pop (_:es) = es
 
+popEncFailLower :: EncType -> MyParser Bool
+popEncFailLower t = getState >>= \st -> let (stack, res) = pop . psEncStack $ st in setState st {psEncStack = stack} >> return res
+    where
+        pop [] = ([], True)
+        pop ((_,b):es) = (map f es, b)
+        f (t',_) | t' == t      = (t', False)
+        f a                     = a
+
 nonReEntrant :: EncType -> MyParser a -> MyParser a
 nonReEntrant t p = (not <$> isInEnc t) >>=  guard >> pushEnc t >> p >>= (<$ popEnc)
+
+onlyMostInner :: EncType -> MyParser a -> MyParser a
+onlyMostInner t p = pushEnc t >> p >>= (<$ (popEncFailLower t >>= guard))
 
 getInline :: MyParser (MyParser Inline)
 getInline =  head . psInlStack <$> getState
@@ -86,25 +97,25 @@ popInline = modifyState $ \st -> st {psInlStack = pop . psInlStack $ st}
 withInline :: MyParser Inline -> MyParser a -> MyParser a
 withInline i p = pushInline i >> p >>= (<$ popInline)
 
-manyEnd  :: String          -- Skip chars
+manyEnd  :: MyParser ()     -- Skip chars
          -> MyParser ()     -- end parser
          -> MyParser a      -- inner parser
          -> MyParser [a]    
 manyEnd = manyEnd'' (const mzero) return
 
-manyEnd'  :: String         -- Skip chars
+manyEnd'  :: MyParser ()     -- Skip chars
          -> MyParser ()     -- end parser
          -> MyParser a      -- inner parser
          -> MyParser [a]
 manyEnd'= manyEnd'' return return
 
-manyEnd1 :: String          -- Skip chars
+manyEnd1 :: MyParser ()     -- Skip chars
          -> MyParser ()     -- end parser
          -> MyParser a      -- inner parser
          -> MyParser [a]
 manyEnd1 = manyEnd'' (const mzero) (\as -> if null as then mzero else return as)
 
-manyEnd1':: String          -- Skip chars
+manyEnd1':: MyParser ()     -- Skip chars
          -> MyParser ()     -- end parser
          -> MyParser a      -- inner parser
          -> MyParser [a]
@@ -112,22 +123,22 @@ manyEnd1'= manyEnd'' return (\as -> if null as then mzero else return as)
 
 manyEnd'' :: ([a] -> MyParser [a]) -- on inner failed
           -> ([a] -> MyParser [a]) -- post check
-          -> String                -- Skip chars
+          -> MyParser ()           -- Skip chars
           -> MyParser ()           -- end parser
           -> MyParser a            -- inner parser
           -> MyParser [a]
 manyEnd'' f p s e i = do
-    sWas <- psSkipChars <$> getState
-    modifyState $ \st -> st {psSkipChars = s ++ sWas}
+    sWas <- psSkipCharsP <$> getState
+    modifyState $ \st -> st {psSkipCharsP = s : sWas}
     let
         scan as = try (end as) <|> cont as <|> f as
         end as = e >> return as
         cont as = (:as) <$> i >>= scan 
     as <- scan []
-    modifyState $ \st -> st {psSkipChars = sWas}
+    modifyState $ \st -> st {psSkipCharsP = sWas}
     p . reverse $ as
 
-manyEndHist  :: String          -- Skip chars
+manyEndHist  :: MyParser ()     -- Skip chars
              -> Int             -- samples to look back for look back parser
              -> MyParser ()     -- lookBack parser
              -> MyParser ()     -- Pass end parser
@@ -135,8 +146,8 @@ manyEndHist  :: String          -- Skip chars
              -> MyParser a      -- inner parser
              -> MyParser [a]
 manyEndHist s h l p f i = do
-    sWas <- psSkipChars <$> getState
-    modifyState $ \st -> st {psSkipChars = s ++ sWas}
+    sWas <- psSkipCharsP <$> getState
+    modifyState $ \st -> st {psSkipCharsP = s : sWas}
     let
         scan as a = let as' = a:as in try (endPass as') <|> endCont as'
         endPass as = l >> p >> return as
@@ -144,7 +155,7 @@ manyEndHist s h l p f i = do
         guardFail = (((False,) <$> (lookAhead . try) f) <|> return (True,"")) >>= \(c,e) -> unless c $  unexpected e
         i'  = guardFail >> try i
     as <- lookBack h i' (scan [])
-    modifyState $ \st -> st {psSkipChars = sWas}
+    modifyState $ \st -> st {psSkipCharsP = sWas}
     return (reverse as)
 
 ---------------------------------------------------------------------------------------------
@@ -191,16 +202,16 @@ bof :: MyParser ()
 bof = bol >> (==1) . sourceLine <$> getPosition >>= guard
 
 nonSkipChar :: Char -> MyParser Char
-nonSkipChar c = psSkipChars <$> getState >>= \s -> satisfy (\x -> notElem x s && x == c)
+nonSkipChar c = psSkipCharsP <$> getState >>= \s -> notFollowedBy (choice . map try $ s) >> char c
 
 anyNonSkipChar :: MyParser Char
-anyNonSkipChar = psSkipChars <$> getState >>= \s -> satisfy (`notElem` s)
+anyNonSkipChar = psSkipCharsP <$> getState >>= \s -> notFollowedBy (choice . map try $ s) >> anyChar
 
 oneOfNonSkipChar :: String -> MyParser Char
-oneOfNonSkipChar sy = psSkipChars <$> getState >>= \sn -> satisfy (\x -> notElem x sn && elem x sy)
+oneOfNonSkipChar sy = psSkipCharsP <$> getState >>= \s -> notFollowedBy (choice . map try $ s) >> oneOf sy
 
 noneOfNonSkipChar :: String -> MyParser Char
-noneOfNonSkipChar sy = psSkipChars <$> getState >>= \sn -> satisfy (\x -> notElem x sn && notElem x sy)
+noneOfNonSkipChar sy = psSkipCharsP <$> getState >>= \s -> notFollowedBy (choice . map try $ s) >> noneOf sy
 
 escapedChar :: MyParser Char
 escapedChar =  fst <$> escapedChar'
@@ -263,26 +274,27 @@ table = do
     return $  Table cap aln colw hs rs
 
 tableStart :: MyParser ()
-tableStart = ((optional . try $ eol) >> bol >> skipSpaces >> void (string "||")) <?> "tableStart" 
+tableStart = ((optional . try $ eol) >> bol >> skipSpaces >> void (string "||") >> skipSpaces) <?> "tableStart" 
 
 tableRowStart :: MyParser ()
-tableRowStart = bol >> skipSpaces >> void (string "|")
+tableRowStart = (bol >> skipSpaces >> void (string "|") >> skipSpaces) <?> "tableRowStart" 
 
 tableCells :: String -> MyParser [TableCell]
-tableCells s = withInline inlineNoEol . nonReEntrant EncTableCell $ manyTill (manyEnd "|" e anyBlock) restOfLine 
+tableCells s = withInline inlineNoEol . nonReEntrant EncTableCell $ manyTill (manyEnd sc e anyBlock) restOfLine 
     where 
-        e = try (skipSpaces >> string s >> optional (try restOfLineNotEol)) <|> try restOfLineNotEol
+        sc = void (char '|')
+        e = try (skipSpaces >> string s >> skipSpaces) <|> try restOfLineNotEol
 
 tableRows :: MyParser [[TableCell]]
 tableRows = withInline inlineNoEol . nonReEntrant EncTableRow $ r
     where
-        r = manyEnd "" er (tableRowStart >> tableCells "|")
+        r = manyEnd mzero er (tableRowStart >> tableCells "|")
         er = eof <|> (lookAhead . try $ (bol >> skipSpaces >> (try eol <|> try eof <|> void (noneOfNonSkipChar "|"))))
 
 heading :: MyParser Block
 heading = psLevel <$> getState >>= \l -> headingStart >>= \d -> Header (d + l) nullAttr <$> h
     where
-        h = manyEnd "" restOfLine inlineNoEol
+        h = manyEnd mzero restOfLine inlineNoEol
 
 headingStart :: MyParser Int
 headingStart = (optional . try $ eol) >> bol >> skipSpaces >> oneOf "hH" >> C.digitToInt <$> digit >>= (<$ (oneOf "." >> skipSpaces))
@@ -328,7 +340,7 @@ anyList t = do
     nonReEntrant (EncList pfx) $ do
             let 
                 d = length pfx
-                enc = manyEnd' "" end listContent 
+                enc = manyEnd' mzero end listContent 
                 end = choice [ lookAhead . try $ lowerList
                              , lookAhead . try $ changeList
                              , lookAhead . try $ thisList
@@ -350,7 +362,7 @@ anyList t = do
             
 
 paragraph :: MyParser Block
-paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . collapseInlines <$> manyEnd1' "" e i >>= (<$ (optional . try $ restOfLine))
+paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . collapseInlines <$> manyEnd1' mzero e i >>= (<$ (optional . try $ restOfLine))
     where
         e = choice $ map (lookAhead . try) [ void blankLine
                                            , void tableStart
@@ -436,9 +448,14 @@ inlineFormat':: EncType                 -- Type
              -> String                  -- Delimeter
              -> MyParser [Inline]
 inlineFormat' t s e = let
-        sc = s ++ e
-        ps = try (matchedPuncSpaceOrFirst >>= guard >> fmap (++) (string s) <*> fmap (:[])(lookAhead . try $ printChar))
-        in try(getInline >>= \i ->  collapseInlines <$> nonReEntrant t (ps >> manyEndHist sc 1 (void printChar) (try . void . string $ e) (choice . map try $ (ps:failInlineList)) i) )
+        sc = string e >> notFollowedBy normalWord
+        {-ps = try (matchedPuncSpaceOrFirst >>= guard >> fmap (++) (string s) <*> fmap (:[])(lookAhead . try $ printChar))-}
+        ps = try (matchedPuncSpaceOrFirst >>= guard >> string s >> (lookAhead . try $ printChar))
+        lb   = void printChar
+        endP = (try . void . string $ e) >> (notFollowedBy . try $ normalWord)
+        {-endF = choice . map try $ (ps:failInlineList)-}
+        endF = choice . map try $ failInlineList
+        in try(getInline >>= \i ->  collapseInlines <$> onlyMostInner t (ps >> manyEndHist sc 1 lb endP endF i))
 
 inlineVerbatim :: EncType               -- Type
              -> String                  -- Delimeter
@@ -454,7 +471,8 @@ inlineVerbatim' t s e = let
     l = void printChar
     end = void . string $ e
     inner = anyNonSkipChar 
-    in nonReEntrant t (string s >> manyEndHist e h l end mzero inner)
+    sc = string e >> notFollowedBy normalWord
+    in nonReEntrant t (string s >> manyEndHist sc h l end mzero inner)
 
 nonTrailingSpace :: MyParser Inline
 nonTrailingSpace = Space <$ (many1 spaceChar  >> (lookAhead . try) (anyNonSkipChar >>= \c -> if C.isSpace c then mzero else return c))

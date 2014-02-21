@@ -92,23 +92,23 @@ descriptionParserTests = test
                 ~: Right "ca" ~=? testP (try (char 'c' >> notFollowedBy (char 'a') >> return "") <|>  testPrsLeftOver) "ca",
 
             "nonSkipChar 1" ~:  Right 'a' ~=? testP (nonSkipChar 'a') "a",
-            "nonSkipChar 2" ~:  True  ~=? matchError (testPS (defaultParseState {psSkipChars = "a"}) (nonSkipChar 'a') "a"),
-            "nonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many . nonSkipChar $ 'c') "cca",
-            "nonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipChars = "a"}) ((many . nonSkipChar $ 'c')>>testPrsLeftOver) "cca",
+            "nonSkipChar 2" ~:  True  ~=? matchError (testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) (nonSkipChar 'a') "a"),
+            "nonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) (many . nonSkipChar $ 'c') "cca",
+            "nonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) ((many . nonSkipChar $ 'c')>>testPrsLeftOver) "cca",
 
             "anyNonSkipChar 1" ~:  Right 'a' ~=? testP anyNonSkipChar  "a",
-            "anyNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipChars = "a"}) anyNonSkipChar  "a"),
-            "anyNonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many  anyNonSkipChar) "cca",
-            "anyNonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many  anyNonSkipChar >> testPrsLeftOver) "cca",
+            "anyNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) anyNonSkipChar  "a"),
+            "anyNonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) (many  anyNonSkipChar) "cca",
+            "anyNonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) (many  anyNonSkipChar >> testPrsLeftOver) "cca",
 
             "oneOfNonSkipChar 1" ~:  Right 'a' ~=? testP (oneOfNonSkipChar "a") "a",
-            "oneOfNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipChars = "a"}) (oneOfNonSkipChar "a") "a"),
-            "oneOfNonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many . oneOfNonSkipChar $ "ca") "cca",
-            "oneOfNonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipChars = "a"}) ((many . oneOfNonSkipChar $ "ca")>>testPrsLeftOver) "cca",
+            "oneOfNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) (oneOfNonSkipChar "a") "a"),
+            "oneOfNonSkipChar 3" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) (many . oneOfNonSkipChar $ "ca") "cca",
+            "oneOfNonSkipChar 4" ~:  Right "a" ~=? testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) ((many . oneOfNonSkipChar $ "ca")>>testPrsLeftOver) "cca",
 
             "noneOfNonSkipChar 1" ~:  Right 'c' ~=? testP (noneOfNonSkipChar "a") "c",
             "noneOfNonSkipChar 2" ~:  True ~=? matchError (testP  (noneOfNonSkipChar "a") "a"),
-            "noneOfNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipChars = "c"}) (noneOfNonSkipChar "a") "c"),
+            "noneOfNonSkipChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipCharsP = [void (char 'c')]}) (noneOfNonSkipChar "a") "c"),
 
             "escapedChar 1" ~:  Right '*' ~=? testP escapedChar "\\*",
             "escapedChar 2" ~:  Right '_' ~=? testP escapedChar "\\_",
@@ -139,13 +139,13 @@ descriptionParserTests = test
             "blankLine 5" ~:  Right "a" ~=? testP (anyChar >> restOfLine >> blankLine >> testPrsLeftOver) "a\n    \na",
 
             "printChar 1" ~:  Right 'a' ~=? testP printChar  "a",
-            "printChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipChars = "a"}) printChar  "a"),
+            "printChar 2" ~:  True ~=? matchError (testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) printChar  "a"),
             "printChar 3" ~:  True ~=? matchError (testP printChar  " "),
             "printChar 4" ~:  True ~=? matchError (testP printChar  "\t"),
             "printChar 5" ~:  True ~=? matchError (testP printChar  "\n"),
             "printChar 6" ~:  True ~=? matchError (testP printChar  "\r"),
-            "printChar 7" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many  printChar) "cca",
-            "printChar 8" ~:  Right "a" ~=? testPS (defaultParseState {psSkipChars = "a"}) (many  printChar >> testPrsLeftOver) "cca",
+            "printChar 7" ~:  Right "cc" ~=? testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) (many  printChar) "cca",
+            "printChar 8" ~:  Right "a" ~=? testPS (defaultParseState {psSkipCharsP = [void (char 'a')]}) (many  printChar >> testPrsLeftOver) "cca",
             "printChar 9" ~:  Right " a" ~=? testP (many  printChar >> testPrsLeftOver) "cc a",
 
             "emptyLines 1" ~: Right Null ~=? testP emptyLines "\n\n",
@@ -397,6 +397,31 @@ descriptionParserTests = test
                                 ++ "I3\n"
                                 ++ "-- !url3!"),
 
+            "table with cells starting with spaces" ~: 
+                Right (toList $ header 4 . str <| "Requirements" 
+                                <> tbl 2
+                                            [para . text <| "Requirement",  para . text <| "Description"]
+                                            [
+                                            [para . text <| "LYNX-2523",  para . text <| "CDNU WPT.14 Basic Functionality"]
+                                            ]
+                                        
+                      )
+                ~=? testP prsDesc ("h4. Requirements\n"
+                                   ++ "|| Requirement || Description ||\n"
+                                   ++ "| LYNX-2523| CDNU WPT.14 Basic Functionality | \n"),
+
+            "table with inline fmt" ~: 
+                Right (toList $ header 4 . str <| "Requirements" 
+                                <> tbl 2
+                                            [para . strong . text <| "Requirement",  para . emph . text <| "Description"]
+                                            [
+                                            [para . strikeout . text <| "LYNX-2523",  para . text <| "CDNU WPT.14 Basic Functionality"]
+                                            ]
+                                        
+                      )
+                ~=? testP prsDesc ("h4. Requirements\n"
+                                   ++ "||*Requirement*|| _Description_ ||\n"
+                                   ++ "|-LYNX-2523- | CDNU WPT.14 Basic Functionality | \n"),
 
             "dummy end" ~: True ~=? True
         ]
