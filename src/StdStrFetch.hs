@@ -4,7 +4,7 @@
 module StdStrFetch  (fetchStdSrc
                     ,fetchStrSrc
                     ,fetchCycleIdFromName
-                    ,fetchCycleSchedules
+                    ,fetchCycleExecutions
                     ) where
 import GHC.Exts
 
@@ -54,20 +54,22 @@ _makeReq opts url'' = (applyBasicAuth usr pwd url) {responseTimeout = Just (30 *
 fetchCycleIdFromName :: Query_ String Int 
 fetchCycleIdFromName opts man n = do
     let pid = fromJust . optProjectId $ opts
-        url =  "/rest/zephyr/latest/cycle/statusCount?pid=" ++ show pid ++ "&vid=-1&offset=0"
+        -- /rest/zapi/latest/cycle?projectId=10500&versionId=-1&offset=0
+        url =  "/rest/zapi/latest/cycle?projectId=" ++ show pid ++ "&versionId=-1&offset=0"
         req = _makeReq opts url
         findCycle rsp = liftM (find ((n==) . cycleName)) rsp >>= maybe (fail "Cycle not found") (return . cycleId) 
     findCycle . decodeProjectCyclesResponse . responseBody <$> httpLbs req man
 
 
-fetchCycleSchedules :: Query_ Int [Schedule] 
-fetchCycleSchedules opts man cid = Right <$> iter 0
+fetchCycleExecutions :: Query_ Int [Execution] 
+fetchCycleExecutions opts man cid = Right <$> iter 0
     where 
-        iter :: forall m. (MonadBaseControl IO m, MonadResource m) => Int -> m [Schedule]
+        iter :: forall m. (MonadBaseControl IO m, MonadResource m) => Int -> m [Execution]
         iter cnt = do
-            let url =  "/rest/zephyr/latest/schedule?cycleId=" ++ show cid ++ "&action=expand&offset=" ++ show cnt ++ "&sorter=ID:DESC"
+                       -- "/rest/zapi/latest/execution?cycleId=21&action=expand&offset=0"
+            let url =  "/rest/zapi/latest/execution?cycleId=" ++ show cid ++ "&action=expand&offset=" ++ show cnt 
                 req = _makeReq opts url
-            (scs, t) <- _fromEither =<< decodeCycleResponse . responseBody <$> httpLbs req man
+            (scs, t) <- _fromEither =<< decodeCycleExecutions . responseBody <$> httpLbs req man
             if cnt < t 
                 then (scs ++) <$> iter (length scs + cnt)
                 else return scs
@@ -75,18 +77,20 @@ fetchCycleSchedules opts man cid = Right <$> iter 0
 
 fetchTestStepInfos :: Query_ Int [TestStepInfo]
 fetchTestStepInfos opts man iid = do
-    let url =  "/rest/zephyr/latest/teststep/" ++ show iid 
+               -- "/rest/zapi/latest/teststep/20362"
+    let url =  "/rest/zapi/latest/teststep/" ++ show iid 
         req = _makeReq opts url
     decodeTestStepsResponse . responseBody <$> httpLbs req man
 
 fetchTestStepResults :: Query_ Int [TestStepResult]
 fetchTestStepResults opts man sid = do
-    let url =  "/rest/zephyr/latest/stepresult?scheduleId=" ++ show sid ++ "&expand=executionStatus"  
+              -- "/rest/zapi/latest/stepResult?executionId=592&expand=executionStatus"
+    let url =  "/rest/zapi/latest/stepResult?executionId=" ++ show sid ++ "&expand=executionStatus"  
         req = _makeReq opts url
     decodeTestStepResultsResponse . responseBody <$> httpLbs req man
 
 fetchTestIssueById :: Query_ Int Issue
-fetchTestIssueById opts man' iid = do
+fetchTestIssueById opts _ iid = do
     -- repeated use of same connection is resulting the following bug (InvalidStatusLine "" when reusing a connection #117) in HTTP Conduit
     man <- liftIO $ newManager def 
     let url =  "/rest/api/latest/issue/" ++ show iid ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
@@ -94,7 +98,7 @@ fetchTestIssueById opts man' iid = do
     decodeIssueResponse . responseBody <$> httpLbs req man
 
 
-fetchStdTestSrc :: Query_ Schedule StdTestSrc
+fetchStdTestSrc :: Query_ Execution StdTestSrc
 fetchStdTestSrc opts man sc = do
     let iid = Z.issueId sc
     issue <- _fromEither =<< fetchTestIssueById opts man iid
@@ -106,7 +110,7 @@ fetchStdTestSrc opts man sc = do
 _fetchStdSrc :: Query_ String StdSrc
 _fetchStdSrc opts man cn = do
     cid <- _fromEither =<< fetchCycleIdFromName opts man cn 
-    scs <- _fromEither =<< fetchCycleSchedules opts man cid
+    scs <- _fromEither =<< fetchCycleExecutions opts man cid
     Right . StdSrc <$> forM scs (_fromEither <=< fetchStdTestSrc opts man)
 
 _extractOpenStdIssues :: [StdTestSrc] -> S.Set String
@@ -137,10 +141,10 @@ _getTestsIssueIds Issue{issueLinks = ls} = map getId . filter onlyTest $ ls
         onlyTest (Outward d _ _) = ("tests" == ) . map toLower $ d
         onlyTest (Inward d _ _) = ("tests" == ) . map toLower $ d
 
-fetchStrTestSrc :: Query_ Schedule StrTestSrc
+fetchStrTestSrc :: Query_ Execution StrTestSrc
 fetchStrTestSrc opts man sc = do
     let iid = Z.issueId sc
-        sid = scheduleId sc
+        sid = executionId sc
     issue <- _fromEither =<< fetchTestIssueById opts man iid
     let storyIds = _getTestsIssueIds issue
     stories <- forM storyIds (\i -> _fromEither =<< fetchTestIssueById opts man i)
@@ -160,7 +164,7 @@ fetchStrTestSrc opts man sc = do
 _fetchStrSrc :: Query_ String StrSrc
 _fetchStrSrc opts man cn = do
     cid <- _fromEither =<< fetchCycleIdFromName opts man cn 
-    scs <- _fromEither =<< fetchCycleSchedules opts man cid
+    scs <- _fromEither =<< fetchCycleExecutions opts man cid
     Right . StrSrc <$> forM scs (_fromEither <=< fetchStrTestSrc opts man)
 
 fetchStrSrc :: Options -> IO ()

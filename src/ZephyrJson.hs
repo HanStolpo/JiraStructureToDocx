@@ -13,9 +13,9 @@
 module ZephyrJson   ( TestStatus(..)
                     , TestStepInfo(..)
                     , TestStepResult(..)
-                    , Schedule(..)
+                    , Execution(..)
                     , Cycle(..)
-                    , decodeCycleResponse
+                    , decodeCycleExecutions
                     , decodeTestStepsResponse
                     , decodeTestStepResultsResponse
                     , decodeProjectCyclesResponse
@@ -31,13 +31,12 @@ import Test.HUnit
 import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.Framework.TH
-import Data.ByteString.Lazy.Char8 (ByteString)     -- only import string instances for overloaded strings
-import qualified Data.Text as T
+-- import qualified Data.Text as T
 import qualified Data.Map as M
 import Data.Maybe(fromMaybe, isJust)
 import Control.Applicative(pure, (<$>), (<|>), (<*>))
 import Data.List(find)
-import Data.ByteString.Lazy.Char8(unpack)
+import Data.ByteString.Lazy.Char8(unpack, ByteString)
 
 zephyrJsonTestGroup ::  Test.Framework.Test
 zephyrJsonTestGroup = $(testGroupGenerator)
@@ -97,10 +96,9 @@ _testStatusFromDef StatusDef_{..} = error $ "unknown status identifier " ++ show
 -----------------------------------
 -- Schedule
 -----------------------------------
-data Schedule = Schedule
+data Execution = Execution
     {
-        scheduleCycleId :: Int,
-        scheduleId :: Int,
+        executionId :: Int,
         issueKey :: String,
         issueId :: Int,
         summary :: String,
@@ -109,37 +107,35 @@ data Schedule = Schedule
         status :: TestStatus,
         comment :: String
     }deriving (Eq, Show, Read, Generic)
-instance Out Schedule
+instance Out Execution
 
-data ScheduleDef_ = ScheduleDef_ {executionStatus :: String, schedule :: Schedule} deriving (Eq, Show, Read, Generic)
-instance Out ScheduleDef_
-instance AS.FromJSON ScheduleDef_ where
+data ExecutionDef_ = ExecutionDef_ {executionStatus :: String, execution :: Execution} deriving (Eq, Show, Read, Generic)
+instance Out ExecutionDef_
+instance AS.FromJSON ExecutionDef_ where
     parseJSON (AS.Object v) = do
-        scheduleCycleId' <- v AS..: "cycleID"
-        scheduleId' <- v AS..: "scheduleID"
+        executionId' <- v AS..: "id"
         issueKey' <- v AS..: "issueKey"
-        issueId' <- v AS..: "issueID"
+        issueId' <- v AS..: "issueId"
         summary' <- v AS..: "summary"
         executedOn' <- v AS..:? "executedOn" AS..!= ""
         executedBy' <- v AS..:? "executedByDisplay" AS..!= ""
         executionStatus' <- v AS..: "executionStatus"
         comment' <- v AS..:? "htmlComment" AS..!= ""
-        return ScheduleDef_ {executionStatus = executionStatus', schedule = Schedule {  scheduleCycleId =scheduleCycleId',
-                                                                                        scheduleId =scheduleId',
-                                                                                        issueKey =issueKey',
-                                                                                        issueId =issueId',
+        return ExecutionDef_ {executionStatus = executionStatus', execution = Execution {executionId = executionId',
+                                                                                        issueKey = issueKey',
+                                                                                        issueId = issueId',
                                                                                         status = NullTestStatus,
-                                                                                        summary =summary',
-                                                                                        executedOn =executedOn',
-                                                                                        executedBy =executedBy',
-                                                                                        comment =comment' }}
-    parseJSON a = AS.typeMismatch "ScheduleDef_" a
+                                                                                        summary = summary',
+                                                                                        executedOn = executedOn',
+                                                                                        executedBy = executedBy',
+                                                                                        comment = comment' }}
+    parseJSON a = AS.typeMismatch "ExecutionDef_" a
 
-case_decodeScheduleDef ::  Assertion
-case_decodeScheduleDef = Right expected @=? AS.eitherDecode s
+case_decodeExecutionDef ::  Assertion
+case_decodeExecutionDef = Right expected @=? AS.eitherDecode s
     where
-        expected =  ScheduleDef_ {executionStatus = "1", schedule = Schedule { scheduleCycleId = 2,
-                                                                            scheduleId = 75,
+        expected =  ExecutionDef_ {executionStatus = "1", execution = Execution { 
+                                                                            executionId = 75,
                                                                             issueKey = "LYNX-1002",
                                                                             issueId = 16101,
                                                                             status = NullTestStatus,
@@ -148,13 +144,13 @@ case_decodeScheduleDef = Right expected @=? AS.eitherDecode s
                                                                             executedBy = "executedByDisplayBlah",
                                                                             comment = "commentBlah" }}
         s = [r|{"summary": "summaryBlah",
+                "id": 75, 
                 "executedOn": "02/May/13 12:14 PM",
                 "cycleName": "cycleNameBlah", 
                 "cycleID": 2,
                 "label": "LxSensor", 
                 "issueId": 16101,
                 "versionName": "Unscheduled", 
-                "issueID": 16101,
                 "executedByDisplay": "executedByDisplayBlah", 
                 "executionStatus": "1",
                 "projectID": 10500, 
@@ -163,7 +159,6 @@ case_decodeScheduleDef = Right expected @=? AS.eitherDecode s
                 "component": "", 
                 "versionID": -1,
                 "issueKey": "LYNX-1002", 
-                "scheduleID": 75, 
                 "comment": ""}
             |]
 
@@ -176,32 +171,32 @@ instance Out StatusMap_ where
     doc  = GP.docList . M.toList
     docPrec _  = GP.docList . M.toList
 
-data Cycle_ = Cycle_ {statusDefs :: StatusMap_, schedules :: [ScheduleDef_], totalSchedules :: Int} deriving (Eq, Show, Read, Generic)
+data Cycle_ = Cycle_ {statusDefs :: StatusMap_, executions :: [ExecutionDef_], totalExecutions :: Int} deriving (Eq, Show, Read, Generic)
 instance Out Cycle_
 
 instance AS.FromJSON Cycle_ where
     parseJSON (AS.Object v) = do
-        schedules' <- v AS..: "schedules"
         statusDefs' <- v AS..: "status"
-        totalSchedules' <- v AS..: "recordsCount"
-        return Cycle_ {schedules = schedules', statusDefs = statusDefs', totalSchedules = totalSchedules'}
+        executions' <- v AS..: "executions"
+        totalExecutions' <- v AS..: "recordsCount"
+        return Cycle_ {executions = executions', statusDefs = statusDefs', totalExecutions = totalExecutions'}
     parseJSON a = AS.typeMismatch "Cycle_" a
 
-_schedulesFromCycle :: Cycle_ -> [Schedule]
-_schedulesFromCycle Cycle_ {..} = map toS schedules
+_executionsFromCycle :: Cycle_ -> [Execution]
+_executionsFromCycle Cycle_ {..} = map toS executions
     where
-        toS ScheduleDef_{..} = schedule {status =  fromMaybe NullTestStatus $ _testStatusFromDef <$> M.lookup executionStatus statusDefs}
+        toS ExecutionDef_{..} = execution {status =  fromMaybe NullTestStatus $ _testStatusFromDef <$> M.lookup executionStatus statusDefs}
 
-decodeCycleResponse :: ByteString -> Either String ([Schedule], Int)
-decodeCycleResponse  = fmap mkTpl . AS.eitherDecode where  mkTpl c = (_schedulesFromCycle c, totalSchedules c)
+decodeCycleExecutions :: ByteString -> Either String ([Execution], Int)
+decodeCycleExecutions  = fmap mkTpl . AS.eitherDecode where  mkTpl c = (_executionsFromCycle c, totalExecutions c)
 
 case_decodeCycleSchedules ::  Assertion
 case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
     where
         expected =  Cycle_ 
                     { statusDefs = M.fromList [("1", StatusDef_ {_ident = 1, _desc = "blah", _name="PASS"}), ("2", StatusDef_ {_ident = 2, _desc = "blah", _name="FAIL"})],
-                      schedules = [ScheduleDef_ {executionStatus = "1", schedule = Schedule {scheduleCycleId = 2,
-                                                                                            scheduleId = 75,
+                      executions = [ExecutionDef_ {executionStatus = "1", execution = Execution {
+                                                                                            executionId = 75,
                                                                                             issueKey = "LYNX-1002",
                                                                                             issueId = 16101,
                                                                                             status = NullTestStatus,
@@ -209,8 +204,8 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                                                                                             executedOn = "executedOnBlah1",
                                                                                             executedBy = "executedByDisplayBlah1",
                                                                                             comment = "htmlCommentBlah1" }},
-                                    ScheduleDef_ {executionStatus = "2", schedule = Schedule {scheduleCycleId = 2,
-                                                                                            scheduleId = 76,
+                                    ExecutionDef_ {executionStatus = "2", execution = Execution {
+                                                                                            executionId = 76,
                                                                                             issueKey = "LYNX-992",
                                                                                             issueId = 16023,
                                                                                             status = NullTestStatus,
@@ -218,7 +213,7 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                                                                                             executedOn = "executedOnBlah2",
                                                                                             executedBy = "executedByDisplayBlah2",
                                                                                             comment = "htmlCommentBlah2" }}],
-                      totalSchedules = 34
+                      totalExecutions = 34
                     }
         s = [r|{"status": { "1": {"id":  1, "color": "#75B000", "desc": "blah", "name": "PASS"},
                             "2": {"id":  2, "color": "#CC3300", "desc": "blah", "name": "FAIL"}}, 
@@ -229,7 +224,7 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                             "label": "labelBlah1",
                             "issueId": 16101,
                             "versionName": "versionNameBlah1",
-                            "issueID": 16101,
+                            "issueId": 16101,
                             "executedByDisplay": "executedByDisplayBlah1",
                             "executionStatus": "1",
                             "projectID": 10500,
@@ -238,7 +233,7 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                             "component": "",
                             "versionID": -1,
                             "issueKey": "LYNX-1002",
-                            "scheduleID": 75,
+                            "id": 75,
                             "comment": "commentBlah1"},
                            {"summary": "summaryBlah2",
                             "executedOn": "executedOnBlah2",
@@ -247,7 +242,7 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                             "label": "labelBlah2",
                             "issueId": 16023,
                             "versionName": "versionNameBlah2",
-                            "issueID": 16023,
+                            "issueId": 16023,
                             "executedByDisplay": "executedByDisplayBlah2",
                             "executionStatus": "2",
                             "projectID": 10500,
@@ -256,9 +251,9 @@ case_decodeCycleSchedules = Right expected @=? AS.eitherDecode s
                             "component": "",
                             "versionID": -1,
                             "issueKey": "LYNX-992",
-                            "scheduleID": 76,
+                            "id": 76,
                             "comment": "commentBlah2"}],
-                "currentlySelectedScheduleId": "", 
+                "currentlySelectedExecutionId": "", 
                 "recordsCount": 34
                 }
             |]
@@ -282,13 +277,14 @@ instance AS.FromJSON TestStepInfo where
     parseJSON (AS.Object v) = TestStepInfo <$>
                                 v AS..: "id" <*>
                                 v AS..: "orderId" <*>
+                                -- should maybe rather use the HTML step, data and result
                                 v AS..:? "step" AS..!= "" <*>
                                 v AS..:? "data" AS..!= "" <*>
                                 v AS..:? "result" AS..!= "" 
     parseJSON a = AS.typeMismatch "TestStepInfo" a
 
 decodeTestStepsResponse :: ByteString -> Either String [TestStepInfo]
-decodeTestStepsResponse s = either (\l -> Left (l ++ unpack s)) (\r' -> Right r') $ AS.eitherDecode s
+decodeTestStepsResponse s = either (\l -> Left (l ++ unpack s)) Right $ AS.eitherDecode s
 
 case_decodeTestStepInfo ::  Assertion
 case_decodeTestStepInfo = Right expected @=? AS.eitherDecode s
@@ -375,7 +371,7 @@ data Cycle = Cycle
 instance Out Cycle
 
 instance AS.FromJSON Cycle where
-    parseJSON (AS.Object v) = Cycle <$> v AS..:? "id" AS..!= 0 <*> v AS..: "name" <*> v AS..: "desc"
+    parseJSON (AS.Object v) = Cycle <$> v AS..:? "id" AS..!= 0 <*> v AS..: "name" <*> v AS..: "description"
     parseJSON a = AS.typeMismatch "Cycle" a
 
 newtype ProjectCycleElem_ = ProjectCycleElem_ {_projCycleElem :: Maybe Cycle}
@@ -399,21 +395,21 @@ case_decodeProjectCycles = Right expected @=? decodeProjectCyclesResponse s
                     , Cycle {cycleId = 1, cycleName = "Sprint 2 Dry run", cycleDesc = ""}
                     , Cycle {cycleId = 2, cycleName = "Sprint 2 Demonstrations", cycleDesc = "Tests demonstrating the outcomes of sprint 2."}
                     ]
-        s = [r|{"-1": {"totalSchedules": 35, "startDate": "", "totalExecutions": 31, "desc": "", "environment": "",
+        s = [r|{"-1": {"totalSchedules": 35, "startDate": "", "totalExecutions": 31, "description": "", "environment": "",
                         "executionSummaries": {"executionSummary": [{"count": 4, "statusKey": -1, "statusName": "UNEXECUTED", "statusColor": "#A0A0A0", "statusDescription": "The test has not yet been executed."},
                                                                     {"count": 30, "statusKey": 1, "statusName": "PASS", "statusColor": "#75B000", "statusDescription": "Test was executed and passed successfully."},
                                                                     {"count": 0, "statusKey": 2, "statusName": "FAIL", "statusColor": "#CC3300", "statusDescription": "Test was executed and failed."},
                                                                     {"count": 1, "statusKey": 3, "statusName": "WIP", "statusColor": "#F2B000", "statusDescription": "Test execution is a work-in-progress."},
                                                                     {"count": 0, "statusKey": 4, "statusName": "BLOCKED", "statusColor": "#6693B0", "statusDescription": "The test execution of this test was blocked for some reason."}]},
                         "name": "Ad hoc", "versionId": -1, "endDate": "", "started": "", "build": ""},
-                "1": {"totalSchedules": 34, "startDate": "24/Apr/13", "totalExecutions": 34, "desc": "", "environment": "",
+                "1": {"totalSchedules": 34, "startDate": "24/Apr/13", "totalExecutions": 34, "description": "", "environment": "",
                     "executionSummaries": {"executionSummary": [{"count": 0, "statusKey": -1, "statusName": "UNEXECUTED", "statusColor": "#A0A0A0", "statusDescription": "The test has not yet been executed."},
                                                                 {"count": 34, "statusKey": 1, "statusName": "PASS", "statusColor": "#75B000", "statusDescription": "Test was executed and passed successfully."},
                                                                 {"count": 0, "statusKey": 2, "statusName": "FAIL", "statusColor": "#CC3300", "statusDescription": "Test was executed and failed."},
                                                                 {"count": 0, "statusKey": 3, "statusName": "WIP", "statusColor": "#F2B000", "statusDescription": "Test execution is a work-in-progress."},
                                                                 {"count": 0, "statusKey": 4, "statusName": "BLOCKED", "statusColor": "#6693B0", "statusDescription": "The test execution of this test was blocked for some reason."}]},
                     "name": "Sprint 2 Dry run", "versionId": -1, "endDate": "28/May/13", "started": "true", "build": ""},
-                "2": {"totalSchedules": 34, "startDate": "02/May/13", "totalExecutions": 18, "desc": "Tests demonstrating the outcomes of sprint 2.", "environment": "",
+                "2": {"totalSchedules": 34, "startDate": "02/May/13", "totalExecutions": 18, "description": "Tests demonstrating the outcomes of sprint 2.", "environment": "",
                     "executionSummaries": {"executionSummary": [{"count": 16, "statusKey": -1, "statusName": "UNEXECUTED", "statusColor": "#A0A0A0", "statusDescription": "The test has not yet been executed."},
                                                                 {"count": 15, "statusKey": 1, "statusName": "PASS", "statusColor": "#75B000", "statusDescription": "Test was executed and passed successfully."},
                                                                 {"count": 3, "statusKey": 2, "statusName": "FAIL", "statusColor": "#CC3300", "statusDescription": "Test was executed and failed."},

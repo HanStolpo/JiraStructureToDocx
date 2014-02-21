@@ -9,9 +9,7 @@ module StdStrGen    ( genStr
 import System.Directory
 import System.FilePath
 import Text.Pandoc
-import Text.Pandoc.Readers.HTML
 import Text.Pandoc.Builder
-{-import Text.Pandoc.Generic-}
 import Text.Blaze.Renderer.String
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.ByteString as B
@@ -22,7 +20,6 @@ import Data.Monoid
 import Data.List
 import qualified Data.Map as M
 import qualified Data.Set as S
-import qualified Data.Aeson as AS
 import qualified Data.Yaml as YAML
 -- private imports
 import ProgramOptions
@@ -33,7 +30,8 @@ import IssueHierarchy
 import DescriptionParser
 import DocxCustom
 
-import Debug.Trace
+-- import Debug.Trace
+
 
 genStr :: Options -> IO ()
 genStr opts = do
@@ -178,7 +176,7 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                                       ,para . text $ "Status"
                                       ,para . text $ "Comment"] steps
                 steps :: [[Blocks]]
-                steps = map step (zip ss [1..])
+                steps = map step (zip ss [(1::Int)..])
                     where 
                         step s = [_cell . show . snd $ s
                                  ,_cell . stepInfoDesc . fst . fst $ s
@@ -321,7 +319,7 @@ _stdTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                                       ,para . text $ "Expected"
                                       ] steps
                 steps :: [[Blocks]]
-                steps = map step (zip ss [1..])
+                steps = map step (zip ss [(1::Int)..])
                     where 
                         step s = [_cell . show . snd $ s
                                  ,_cell . stepInfoDesc . fst $ s

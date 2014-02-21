@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, RecordWildCards, DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric #-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 
 module StrStdTypes  where
@@ -51,7 +51,7 @@ data StrTestSrc = StrTestSrc
         {
             strIssue    :: Issue,
             strStories  :: [Issue],
-            strResult   :: Schedule,
+            strResult   :: Execution,
             strSteps    :: [(TestStepInfo, TestStepResult)]
         } deriving (Show, Read, Generic)
 

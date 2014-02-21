@@ -8,6 +8,8 @@ module Query  (query
               ,createIssue
               ,fillStructure
               ,updateIssueDescription
+              ,makeReq
+              ,makeReqJson
               ) where
 
 import Network.HTTP.Conduit
