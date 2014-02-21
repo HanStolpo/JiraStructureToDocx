@@ -312,6 +312,11 @@ anyListStart :: MyParser (ListType, String)
 anyListStart = (optional . try $ eol) >> bol >> skipSpaces 
     >> (fromJust . (`lookup`m) . last &&& id) <$> many1 (oneOfNonSkipChar s) 
     >>= (<$ skipSpaces1)
+    >>= (\(t,p) -> case p of
+                       '-':[] -> return (t,p)
+                       '-':_  -> fail "list with - limited to one char"
+                       _      -> return (t,p)
+        )
     where 
         m = [('*', ListB), ('#', ListN), ('-', ListB)]
         s = map fst m
@@ -548,6 +553,7 @@ punctuation = Str <$> do
         chk (c, True)                            = return c
         chk (c, False)  | c `elem` "{?"     = notFollowedBy (try (nonSkipChar c >> printChar)) >> return c
         chk (c, False)  | c `elem`  "_*-+~" = notFollowedBy (try printChar) >> return c
+        chk (c, False)  | c `elem`  "!"     = fail "check for image"
         chk (c, _)                               = return c
         
         fstChk c      | C.isAlphaNum c   = mzero

@@ -5,7 +5,7 @@
 
 module Main where
 
-import DescriptionParserInner hiding (subscript, superscript, strong, bulletList,table)
+import DescriptionParserInner hiding (subscript, superscript, strong, bulletList,table, image)
 import qualified DescriptionParserInner as D (subscript, superscript, strong, bulletList,table)
 import Test.HUnit
 import System.Exit (exitFailure)
@@ -15,6 +15,7 @@ import Text.Pandoc.Builder hiding (space)
 import Control.Monad
 import qualified Text.Pandoc.Builder  as PB (space)
 import Control.Applicative ((<$>), (<$))
+import Data.Monoid (mempty)
 import Debug.Trace
 
 ----------------------------------------------------------------------------------------
@@ -365,6 +366,36 @@ descriptionParserTests = test
                                         ++ "|cell on1|ERSL| \n"
                                         ++ "|cell two|ERSL| \n"),
 
+
+            "multiple images with retard dashes in front" ~: 
+                Right (toList $ para . str <| "Blah:" <>
+                                olist 1 [ para . str <| "A"
+                                            <> olist 2 [para . str <| "AA"]
+                                        , para . str <| "B"
+                                            <> olist 2 [para . str <| "BB"
+                                                    ,para . str <| "BD"
+                                                    ]
+                                        ]
+                                        <> para (text "I1\n--"      <> image "url1" "" (str "url1") )
+                                        <> para (text "I2\n--"      <> image "url2" "" (str "url2") )
+                                        <> para (text "I3\n\2013 "  <> image "url3" "" (str "url3") )
+                                        
+                      )
+                ~=? testP prsDesc ("Blah:\n"
+                                ++ "# A \n"
+                                ++ "## AA\n"
+                                ++ "# B \n"
+                                ++ "## BB\n"
+                                ++ "## BD\n"
+                                ++ "\n"
+                                ++ "I1\n"
+                                ++ "--!url1!\n"
+                                ++ "\n"
+                                ++ "I2\n"
+                                ++ "--!url2!\n"
+                                ++ "\n"
+                                ++ "I3\n"
+                                ++ "-- !url3!"),
 
 
             "dummy end" ~: True ~=? True
