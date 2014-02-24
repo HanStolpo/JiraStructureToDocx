@@ -32,6 +32,9 @@ import DocxCustom
 
 -- import Debug.Trace
 
+_simpleTable :: [Blocks] -> [[Blocks]] -> Blocks
+_simpleTable headers = table mempty (map (const defaults) headers) headers
+  where defaults = (AlignLeft, 0)
 
 genStr :: Options -> IO ()
 genStr opts = do
@@ -86,7 +89,7 @@ _strToDoc StrSrc{..} hierarchy setIssues = toList $
 _strRequirementsAccepted :: [StrTestSrc] -> S.Set String -> Blocks
 _strRequirementsAccepted ts setIssues = if null rs 
         then para . text <| "No requirements were accepted as implemented." 
-        else  para . text <| "The following requirements have been verified and accepted as implemented:" <> simpleTable [para . text <| "Requirement ID"
+        else  para . text <| "The following requirements have been verified and accepted as implemented:" <> _simpleTable [para . text <| "Requirement ID"
                                                                                                                          ,para . text <| "Requirement Title"
                                                                                                                          ,para . text <| "Test ID"
                                                                                                                          ,para . text <| "Test Title"
@@ -107,7 +110,7 @@ _strRequirementsAccepted ts setIssues = if null rs
 _strRequirementsRejected :: [StrTestSrc] -> S.Set String -> Blocks
 _strRequirementsRejected ts setIssues = if null rs 
         then para . text <| "No requirements were rejected as not implemented." 
-        else  para . text <| "The following requirements have been rejected and not accepted as implemented:" <> simpleTable [para . text <| "Requirement ID"
+        else  para . text <| "The following requirements have been rejected and not accepted as implemented:" <> _simpleTable [para . text <| "Requirement ID"
                                                                                                                          ,para . text <| "Requirement Title"
                                                                                                                          ,para . text <| "Test ID"
                                                                                                                          ,para . text <| "Test Title"
@@ -169,7 +172,7 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                         modHdr (Header i a l) = Header (offHdr + i) a l
                         modHdr a = a
                 stepTbl = header (h+1) . text <| "Steps" <>  
-                          simpleTable [para . text $ "#"
+                          _simpleTable [para . text $ "#"
                                       ,para . text $ "Description"
                                       ,para . text $ "Data"
                                       ,para . text $ "Expected"
@@ -189,7 +192,7 @@ _strTestCaseSummary :: [StrTestSrc] -> Blocks
 _strTestCaseSummary ts = if null rs 
         then para . text <| "No tests !!!." 
         else para . text <| "The following table provides a summary of the test results." 
-                         <> simpleTable [para . text <| "Test ID", para . text <| "Test Title", para . text <| "Status"] rs
+                         <> _simpleTable [para . text <| "Test ID", para . text <| "Test Title", para . text <| "Status"] rs
     where
         rs :: [[Blocks]]
         rs = filter (not . null) . map smry . _orderTests $ ts
@@ -313,7 +316,7 @@ _stdTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                         modHdr (Header i a l) = Header (offHdr + i) a l
                         modHdr a = a
                 stepTbl = header (h+1) . text <| "Steps" <> 
-                          simpleTable [para . text $ "#"
+                          _simpleTable [para . text $ "#"
                                       ,para . text $ "Description"
                                       ,para . text $ "Data"
                                       ,para . text $ "Expected"
