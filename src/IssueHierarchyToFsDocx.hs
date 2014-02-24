@@ -107,7 +107,7 @@ hierarchyToDoc idIssue fs sss = toList . foldl mappend mempty . map (expndChild 
         expndChild l IssueHierarchy{..} = hdr <> cnt <> rest
             where
                 hdr = header l . text $ issueKey ihIssue ++ ": " ++ issueSummary ihIssue
-                cnt = table mempty [(AlignLeft, 0.1), (AlignLeft, 0.6), (AlignLeft, 0.5)] [para . text $ "Source", para . text $ "Content", para . text $ "Traceability"] [[ src, dsc, fromMaybe trc . noTrace . issueLabels $ ihIssue]]
+                cnt = table mempty [(AlignLeft, 0.1), (AlignLeft, 0.6), (AlignLeft, 0.3)] [para . text $ "Source", para . text $ "Content", para . text $ "Traceability"] [[ src, dsc, fromMaybe trc . noTrace . issueLabels $ ihIssue]]
                 -- cnt = simpleTable [src, dsc, trc] [ ]
                 src = case issueSources ihIssue of 
                             Nothing -> para . text $ "None"
