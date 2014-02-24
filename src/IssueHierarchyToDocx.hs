@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables, RecordWildCards#-}
 
-module IssueHierarchyToDocx (genDoc, hierarchyToDoc) where
+module IssueHierarchyToDocx (genDoc, hierarchyToDoc, idFromLink) where
 
 import Data.Maybe
 import Control.Monad.Error
@@ -33,7 +33,6 @@ genDoc opts = do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optDocxFile $ opts
     cd <- getCurrentDirectory
     putStrLn "Reading issue hierarchy"
-    --Just hierarchy :: Maybe IssueHierarchy <- liftM YAML.decode $ B.readFile (optHierarchyFile opts)
     hierarchy <- either (\e -> error $ "failure reading hierarchy file [" ++ optHierarchyFile opts ++ "] reason being : " ++ e) 
                         id . YAML.decodeEither <$> B.readFile (optHierarchyFile opts)
     putStrLn "Generating pandoc"
