@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables, RecordWildCards#-}
+{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables, RecordWildCards, RankNTypes#-}
 
 module IssueHierarchyToDocx (genDoc, hierarchyToDoc, idFromLink) where
 
@@ -21,6 +21,7 @@ import qualified Data.Map as M
 import Text.Blaze.Renderer.String
 import System.FilePath
 import Safe
+import Debug.Trace
 -- Local imports
 import IssueHierarchy
 import JiraTypes
@@ -102,16 +103,41 @@ issueKeyPfx m = foldl chk (ext . head $ ks) ks
                 | otherwise = error "inconsistent issue key in remapping [" ++ s ++ "/=" ++ n ++ "]"
 
 
-replaceLinks :: String -> IssueHierarchy -> (String -> String)
+{-replaceLinks :: String -> IssueHierarchy -> (String -> String)-}
+{-replaceLinks lnm hierarchy = f-}
+    {-where-}
+        {-m       = linkMap lnm hierarchy-}
+        {-ikPfx   = issueKeyPfx m-}
+        {-f       = prsRepl m ikPfx-}
+
+{-prsRepl :: M.Map String String -> String -> String -> String-}
+{-prsRepl m ikPfx s = either (error . ("prsRepl "++) . show) concat (parse p s s)-}
+    {-where-}
+        {-p = many . choice $ [lnk, txt]-}
+        {-txt = manyTill anyChar (lookAhead (void lnk <|> eof)) >>= \txt' -> if null txt' then fail "" else return txt'-}
+        {-lnk = try $ fromJustNote "error renaming issue link" . (`M.lookup` m) <$> ((++) <$> string ikPfx <*> many1 digit)-}
+
+replaceLinks ::  String -> IssueHierarchy -> (String -> String)
 replaceLinks lnm hierarchy = f
     where
         m       = linkMap lnm hierarchy
         ikPfx   = issueKeyPfx m
-        f       = prsRepl m ikPfx
+        f s     = case prsRepl m ikPfx s of
+                    Left e -> trace e e
+                    Right s' -> s'
 
-prsRepl :: M.Map String String -> String -> String -> String
-prsRepl m ikPfx s = either (error . ("prsRepl "++) . show) concat (parse p s s)
+
+prsRepl :: MonadError String m => M.Map String String -> String -> String -> m String
+prsRepl m ikPfx s = do
+    r <- runParserT p () s s
+    case r of
+        Left e -> throwError . ("prsRepl "++) . show $ e
+        Right a -> return $ concat a
     where
         p = many . choice $ [lnk, txt]
         txt = manyTill anyChar (lookAhead (void lnk <|> eof)) >>= \txt' -> if null txt' then fail "" else return txt'
-        lnk = try $ fromJustNote "error renaming issue link" . (`M.lookup` m) <$> ((++) <$> string ikPfx <*> many1 digit)
+        lnk = try $ do
+            ik <- (++) <$> string ikPfx <*> many1 digit
+            case M.lookup ik m of
+                Nothing -> throwError $ "error renaming issue link [" ++ ik ++ "]"
+                Just  ik'  -> return ik'
