@@ -362,7 +362,7 @@ anyList t = do
             
 
 paragraph :: MyParser Block
-paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . collapseInlines <$> manyEnd1' mzero e i >>= (<$ (optional . try $ restOfLine))
+paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . addLineBreakBeforeAfterImages . collapseInlines <$> manyEnd1' mzero e i >>= (<$ (optional . try $ restOfLine))
     where
         e = choice $ map (lookAhead . try) [ void blankLine
                                            , void tableStart
@@ -432,8 +432,8 @@ failInlineList = [ void blankLine >> return "blankLine"
                  , void eof >> return "eof"]
                                 
 
-addLineBreakBeforeAfterImages :: [Inline] -> MyParser [Inline]
-addLineBreakBeforeAfterImages ls = return $ foldr f [] ls
+addLineBreakBeforeAfterImages :: [Inline] -> [Inline]
+addLineBreakBeforeAfterImages  = foldr f [] 
     where
         f img@(Image _ _) ls' = LineBreak : img : LineBreak : ls'
         f l ls' = l : ls'
@@ -455,7 +455,7 @@ inlineFormat' t s e = let
         endP = (try . void . string $ e) >> (notFollowedBy . try $ normalWord)
         {-endF = choice . map try $ (ps:failInlineList)-}
         endF = choice . map try $ failInlineList
-        in try(getInline >>= \i ->  collapseInlines <$> onlyMostInner t (ps >> manyEndHist sc 1 lb endP endF i))
+        in try(getInline >>= \i ->  addLineBreakBeforeAfterImages . collapseInlines <$> onlyMostInner t (ps >> manyEndHist sc 1 lb endP endF i))
 
 inlineVerbatim :: EncType               -- Type
              -> String                  -- Delimeter
@@ -647,12 +647,13 @@ replaceImageLinks replacer d =
         collapse :: String -> Either ImageLink String -> String 
         collapse sAcc (Left iml ) = let ImageLink m as = replacer iml in sAcc ++ "!" ++ m ++ maybe "" (\a-> '|' : a) as ++ "!"
         collapse sAcc (Right s) = sAcc ++ s
----------------------------------------------------------------------------------------------
+
+------------------------------------------------------
 parseDescription :: Int -> String -> [Block]
 parseDescription l ds = 
     case res of
         Left e -> [RawBlock "" (show e)]
-        Right b -> b
+        Right b -> paragraphBreakImages b
     where
         res = runParser prsDesc  defaultParseState {psLevel = l} "Desc" ds
 
@@ -661,3 +662,27 @@ prsDesc = liftM (filter noNull) (many1 anyBlock)
     where
         noNull Null = False
         noNull _ = True
+
+paragraphBreakImages :: [Block] -> [Block]
+paragraphBreakImages = foldr wlkB []
+    where
+        fld = paragraphBreakImages
+        ---
+        wlkB a@(Plain _) rs = a:rs
+        wlkB a@(CodeBlock _ _) rs = a:rs
+        wlkB a@(RawBlock _ _) rs = a:rs
+        wlkB (BlockQuote bs) rs = BlockQuote (fld bs) : rs
+        wlkB (OrderedList l bbs) rs = OrderedList l (map fld bbs) : rs
+        wlkB (BulletList bbs) rs = BulletList  (map fld bbs) : rs
+        wlkB (DefinitionList tpls) rs = let f = map (second (map fld)) in DefinitionList (f tpls) : rs
+        wlkB a@Header{} rs = a:rs
+        wlkB HorizontalRule rs = HorizontalRule : rs
+        wlkB (Table is as ws hs rws) rs = Table is as ws (map fld hs) (map (map fld) rws) : rs
+        wlkB (Div a bbs) rs = Div a (fld bbs) : rs
+        wlkB Null rs = rs
+        ----
+        wlkB (Para is) rs = foldr wlkI [Para []] is ++ rs
+        wlkI img@(Image _ _) (Para [] : ps) = Para [img] : ps
+        wlkI img@(Image _ _) ps             = Para [img] : ps
+        wlkI i (Para is : ps)               = Para (i:is) : ps
+        wlkI i ps                           = error $ "paragraphBreakImages - logic error can never be here  i == " ++ show i ++ "; and ps == " ++ show ps 
