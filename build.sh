@@ -1,5 +1,5 @@
 #!/bin/bash
 echo Building
-cabal build
+cabal install
 echo Copying build output
-cp -uv ./dist/build/JiraStructureToDocx/JiraStructureToDocx.exe ./bin
+cp -uv ../sandbox/bin/JiraStructureToDocx.exe ../bin
