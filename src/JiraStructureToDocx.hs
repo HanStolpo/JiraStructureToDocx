@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse#-}
--- RUN_GHC_COMMAND_ARGS = --gen-doc-fs --document-file=../Output/FsTrace.docx --sss-hierarchy-file=../Output/LynxSssIssueHierarchy.yaml --hierarchy-file=../Output/LynxFsHierarchy.txt
 
 import System.Exit(exitSuccess)
 import Text.PrettyPrint.GenericPretty as GP
