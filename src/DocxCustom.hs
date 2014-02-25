@@ -30,7 +30,8 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Conversion of 'Pandoc' documents to docx.
 -}
 module DocxCustom ( writeDocxCustom ) where -- module Text.Pandoc.Writers.Docx ( writeDocx ) where
-import Data.List ( intercalate, groupBy )
+import Data.Maybe (fromMaybe)
+import Data.List ( intercalate, isPrefixOf, isSuffixOf )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BL8
@@ -43,6 +44,7 @@ import Text.Pandoc.Definition
 import Text.Pandoc.Generic
 import ImageSize
 import Text.Pandoc.Shared hiding (Element)
+import Writers_Shared (fixDisplayMath)
 import Text.Pandoc.Options
 import Text.Pandoc.Readers.TeXMath
 import Highlighting ( highlight )
@@ -57,7 +59,8 @@ import System.Random (randomRIO)
 import Text.Printf (printf)
 import qualified Control.Exception as E
 import MIME (getMimeType, extensionFromMimeType)
-import Control.Applicative ((<|>))
+import Control.Applicative ((<|>),(<$>))
+import Debug.Trace
 -- import System.FilePath (takeExtension)
 
 data WriterState = WriterState{
@@ -132,7 +135,8 @@ writeDocxCustom opts doc@(Pandoc meta _) = do
   let mkOverrideNode (part', contentType') = mknode "Override"
                [("PartName",part'),("ContentType",contentType')] ()
   let mkImageOverride (_, imgpath, mbMimeType, _, _) =
-             mkOverrideNode ("/word/" ++ imgpath, maybe "application/octet-stream" id mbMimeType)
+             mkOverrideNode ("/word/" ++ imgpath,
+                             fromMaybe "application/octet-stream" mbMimeType)
   let overrides = map mkOverrideNode
                   [("/word/webSettings.xml",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.webSettings+xml")
@@ -262,6 +266,12 @@ writeDocxCustom opts doc@(Pandoc meta _) = do
   fontTableEntry <- entryFromArchive "word/fontTable.xml"
   settingsEntry <- entryFromArchive "word/settings.xml"
   webSettingsEntry <- entryFromArchive "word/webSettings.xml"
+  let miscRels = [ f | f <- filesInArchive refArchive
+                     , "word/_rels/" `isPrefixOf` f
+                     , ".xml.rels" `isSuffixOf` f
+                     , f /= "word/_rels/document.xml.rels"
+                     , f /= "word/_rels/footnotes.xml.rels" ]
+  miscRelEntries <- mapM entryFromArchive miscRels
 
   -- Create archive
   let archive = foldr addEntryToArchive emptyArchive $
@@ -269,7 +279,7 @@ writeDocxCustom opts doc@(Pandoc meta _) = do
                   footnoteRelEntry : numEntry : styleEntry : footnotesEntry :
                   docPropsEntry : docPropsAppEntry : themeEntry :
                   fontTableEntry : settingsEntry : webSettingsEntry :
-                  imageEntries
+                  imageEntries ++ miscRelEntries
   return $ fromArchive archive
 
 styleToOpenXml :: Style -> [Element]
@@ -324,7 +334,7 @@ mkNum markers marker numid =
        NumberMarker _ _ start ->
           map (\lvl -> mknode "w:lvlOverride" [("w:ilvl",show (lvl :: Int))]
               $ mknode "w:startOverride" [("w:val",show start)] ()) [0..6]
-   where absnumid = maybe 0 id $ M.lookup marker markers
+   where absnumid = fromMaybe 0 $ M.lookup marker markers
 
 mkAbstractNum :: (ListMarker,Int) -> IO Element
 mkAbstractNum (marker,numid) = do
@@ -835,30 +845,8 @@ br = mknode "w:r" [] [mknode "w:br" [("w:type","textWrapping")] () ]
 
 parseXml :: Archive -> String -> IO Element
 parseXml refArchive relpath =
-  case (findEntryByPath relpath refArchive >>= parseXMLDoc . UTF8.toStringLazy . fromEntry) of
-       Just d  -> return d
+  case findEntryByPath relpath refArchive of
+       Just e  -> case parseXMLDoc $ UTF8.toStringLazy $ fromEntry e of
+                       Just d  -> return d
+                       Nothing -> fail $ relpath ++ " corrupt in reference docx"
        Nothing -> fail $ relpath ++ " missing in reference docx"
-
-isDisplayMath :: Inline -> Bool
-isDisplayMath (Math DisplayMath _) = True
-isDisplayMath _                    = False
-
-stripLeadingTrailingSpace :: [Inline] -> [Inline]
-stripLeadingTrailingSpace = go . reverse . go . reverse
-  where go (Space:xs) = xs
-        go xs         = xs
-
-fixDisplayMath :: Block -> Block
-fixDisplayMath (Plain lst)
-  | any isDisplayMath lst && not (all isDisplayMath lst) =
-    -- chop into several paragraphs so each displaymath is its own
-    Div ("",["math"],[]) $ map (Plain . stripLeadingTrailingSpace) $
-       groupBy (\x y -> (isDisplayMath x && isDisplayMath y) ||
-                         not (isDisplayMath x || isDisplayMath y)) lst
-fixDisplayMath (Para lst)
-  | any isDisplayMath lst && not (all isDisplayMath lst) =
-    -- chop into several paragraphs so each displaymath is its own
-    Div ("",["math"],[]) $ map (Para . stripLeadingTrailingSpace) $
-       groupBy (\x y -> (isDisplayMath x && isDisplayMath y) ||
-                         not (isDisplayMath x || isDisplayMath y)) lst
-fixDisplayMath x = x

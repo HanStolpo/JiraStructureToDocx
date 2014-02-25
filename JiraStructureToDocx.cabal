@@ -64,7 +64,9 @@ executable JiraStructureToDocx
                         text,
                         yaml,
                         strings,
-                        csv
+                        csv,
+                        unordered-containers == 0.2.3.0,
+                        binary == 0.5.1.1
 
 
 Test-Suite test-parser
