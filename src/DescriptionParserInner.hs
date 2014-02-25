@@ -362,7 +362,7 @@ anyList t = do
             
 
 paragraph :: MyParser Block
-paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . addLineBreakBeforeAfterImages . collapseInlines <$> manyEnd1' mzero e i >>= (<$ (optional . try $ restOfLine))
+paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . collapseInlines <$> manyEnd1' mzero e i >>= (<$ (optional . try $ restOfLine))
     where
         e = choice $ map (lookAhead . try) [ void blankLine
                                            , void tableStart
@@ -455,7 +455,7 @@ inlineFormat' t s e = let
         endP = (try . void . string $ e) >> (notFollowedBy . try $ normalWord)
         {-endF = choice . map try $ (ps:failInlineList)-}
         endF = choice . map try $ failInlineList
-        in try(getInline >>= \i ->  addLineBreakBeforeAfterImages . collapseInlines <$> onlyMostInner t (ps >> manyEndHist sc 1 lb endP endF i))
+        in try(getInline >>= \i ->  collapseInlines <$> onlyMostInner t (ps >> manyEndHist sc 1 lb endP endF i))
 
 inlineVerbatim :: EncType               -- Type
              -> String                  -- Delimeter
@@ -681,8 +681,11 @@ paragraphBreakImages = foldr wlkB []
         wlkB (Div a bbs) rs = Div a (fld bbs) : rs
         wlkB Null rs = rs
         ----
-        wlkB (Para is) rs = foldr wlkI [Para []] is ++ rs
-        wlkI img@(Image _ _) (Para [] : ps) = Para [img] : ps
-        wlkI img@(Image _ _) ps             = Para [img] : ps
+        wlkB (Para is) rs = (filter emptyPara . foldr wlkI [Para []] $ is) ++ rs
+        wlkI img@(Image _ _) (Para [] : ps) = Para [] : Para [img] : ps
+        wlkI img@(Image _ _) ps             = Para [] : Para [img] : ps
         wlkI i (Para is : ps)               = Para (i:is) : ps
         wlkI i ps                           = error $ "paragraphBreakImages - logic error can never be here  i == " ++ show i ++ "; and ps == " ++ show ps 
+        ----
+        emptyPara (Para []) = False
+        emptyPara _         = True
