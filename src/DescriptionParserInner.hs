@@ -171,14 +171,12 @@ lookBack h p l = do
     a <- p
     (srcO, posO) <- (,) <$> getInput <*> getPosition
     let
-        -- mv [] _ _ _                   = error $ "lookBack - input exhausted before catching up\n:" ++ show src ++ "\n" ++ show pos ++ "\n" ++ show srcO ++ "\n" ++ show posO
-        mv [] ph _ _                   = ([],ph, Just $ "lookBack - input exhausted before catching up\n:" ++ show src ++ "\n" ++ show pos ++ "\n" ++ show srcO ++ "\n" ++ show posO)
-        mv sh ph pc _      | ph == pc  = (sh, ph, Nothing)
-        mv (c:sh) ph pc h' | h' <= 0   = mv sh (updatePosChar ph c) pc 0
-        mv sh@(c:_) ph pc h'           = mv sh (updatePosChar ph c) pc (h' - 1)
-        (src', pos', err) = mv src pos posO h
+        mv [] ph _  _                   = ([],ph, Just $ "lookBack - input exhausted before catching up\n:" ++ show src ++ "\n" ++ show pos ++ "\n" ++ show srcO ++ "\n" ++ show posO)
+        mv _ ph pc hs     | ph == pc    = let (sh', ph') = head . drop (h-1) $ hs in (sh', ph', Nothing)
+        mv sh@(c:sh') ph pc hs          = let ph' = updatePosChar ph c in mv sh' ph' pc ((sh,ph):hs)
+        (src', pos', err) = mv src pos posO [(src,pos)]
     case err of
-        Just msg -> unexpected msg
+        Just msg -> traceM' msg >> unexpected msg
         Nothing -> do
                     setInput src' >> setPosition pos'
                     b <- l a
@@ -448,13 +446,12 @@ inlineFormat':: EncType                 -- Type
              -> String                  -- Delimeter
              -> MyParser [Inline]
 inlineFormat' t s e = let
-        sc = string e >> notFollowedBy normalWord
-        {-ps = try (matchedPuncSpaceOrFirst >>= guard >> fmap (++) (string s) <*> fmap (:[])(lookAhead . try $ printChar))-}
-        ps = try (matchedPuncSpaceOrFirst >>= guard >> string s >> (lookAhead . try $ printChar))
-        lb   = void printChar
-        endP = (try . void . string $ e) >> (notFollowedBy . try $ normalWord)
-        {-endF = choice . map try $ (ps:failInlineList)-}
-        endF = choice . map try $ failInlineList
+        sc   = string e >> notFollowedBy normalWord
+        ps   = try (matchedPuncSpaceOrFirst >>= guard >> string s >> (lookAhead . try $ printChar)) 
+        --lb   = void printChar
+        lb   =  void . satisfy $ not . C.isSpace
+        endP =  (try . void . string $ e) >> (notFollowedBy . try $ normalWord)
+        endF =  lookAhead . choice . map try $ failInlineList
         in try(getInline >>= \i ->  collapseInlines <$> onlyMostInner t (ps >> manyEndHist sc 1 lb endP endF i))
 
 inlineVerbatim :: EncType               -- Type

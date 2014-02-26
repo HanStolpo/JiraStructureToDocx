@@ -321,7 +321,7 @@ descriptionParserTests = test
 
             "minus no strike through 3" ~:
                     Right (toBlock $ para (text "-140 to -70 dBm" <> PB.space <> (strikeout . text $ "strike through")))
-                    ~=? testP (Para . collapseInlines <$> sequence 
+                    ~=? testP (Para . collapseInlines <$> sequence
                                                         [ punctuation <?> "a"
                                                         , normalWord <?> "b"
                                                         , nonTrailingSpace <?> "c"
@@ -367,7 +367,7 @@ descriptionParserTests = test
                                         ++ "|cell two|ERSL| \n"),
 
 
-            "multiple images with retard dashes in front" ~: 
+            "multiple images with retard dashes in front" ~:
                 Right (toList $ para . str <| "Blah:" <>
                                 olist 1 [ para . str <| "A"
                                             <> olist 2 [para . str <| "AA"]
@@ -397,8 +397,8 @@ descriptionParserTests = test
                                 ++ "I3\n"
                                 ++ "-- !url3!"),
 
-            "table with cells starting with spaces" ~: 
-                Right (toList $ header 4 . str <| "Requirements" 
+            "table with cells starting with spaces" ~:
+                Right (toList $ header 4 . str <| "Requirements"
                                 <> tbl 2
                                             [para . text <| "Requirement",  para . text <| "Description"]
                                             [
@@ -410,8 +410,8 @@ descriptionParserTests = test
                                    ++ "|| Requirement || Description ||\n"
                                    ++ "| LYNX-2523| CDNU WPT.14 Basic Functionality | \n"),
 
-            "table with inline fmt" ~: 
-                Right (toList $ header 4 . str <| "Requirements" 
+            "table with inline fmt" ~:
+                Right (toList $ header 4 . str <| "Requirements"
                                 <> tbl 2
                                             [para . strong . text <| "Requirement",  para . emph . text <| "Description"]
                                             [
@@ -422,6 +422,15 @@ descriptionParserTests = test
                 ~=? testP prsDesc ("h4. Requirements\n"
                                    ++ "||*Requirement*|| _Description_ ||\n"
                                    ++ "|-LYNX-2523- | CDNU WPT.14 Basic Functionality | \n"),
+
+
+            "multi format 1" ~: 
+                Right (toList $ para . emph . strong . str $ "a")
+                ~=? testP prsDesc ("_*a*_"),
+
+            "multi format 2" ~:
+                Right (toList $ para $ emph (str "X_." <> smallcaps (strong . str $ "a") <> text " - B key.") )
+                ~=? testP prsDesc ("_X\\_.+*a*+ - B key._"),
 
             "dummy end" ~: True ~=? True
         ]
