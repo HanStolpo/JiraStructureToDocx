@@ -424,13 +424,18 @@ descriptionParserTests = test
                                    ++ "|-LYNX-2523- | CDNU WPT.14 Basic Functionality | \n"),
 
 
-            "multi format 1" ~: 
+            "multi format 1" ~:
                 Right (toList $ para . emph . strong . str $ "a")
                 ~=? testP prsDesc ("_*a*_"),
 
             "multi format 2" ~:
                 Right (toList $ para $ emph (str "X_." <> smallcaps (strong . str $ "a") <> text " - B key.") )
                 ~=? testP prsDesc ("_X\\_.+*a*+ - B key._"),
+
+            "multi format 3" ~:
+                Right (toList $ para $ emph (strong . str $ "LFK1.a"))
+                ~=? testP prsDesc ("_*LFK1.a*_"),
+                
 
             "dummy end" ~: True ~=? True
         ]

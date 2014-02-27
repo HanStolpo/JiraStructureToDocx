@@ -149,7 +149,7 @@ manyEndHist s h l p f i = do
     sWas <- psSkipCharsP <$> getState
     modifyState $ \st -> st {psSkipCharsP = s : sWas}
     let
-        scan as a = let as' = a:as in try (endPass as') <|> endCont as'
+        scan as a = let as' = a:as in  (try (endPass as') <|> endCont as')
         endPass as = l >> p >> return as
         endCont as = count h anyToken >> lookBack h i' (scan as)
         guardFail = (((False,) <$> (lookAhead . try) f) <|> return (True,"")) >>= \(c,e) -> unless c $  unexpected e
@@ -158,6 +158,23 @@ manyEndHist s h l p f i = do
     modifyState $ \st -> st {psSkipCharsP = sWas}
     return (reverse as)
 
+manyEndPF :: MyParser ()           -- Skip chars
+          -> MyParser ()           -- Pass end parser
+          -> MyParser String       -- Fail end parser
+          -> MyParser a            -- inner parser
+          -> MyParser [a]
+manyEndPF s p f i = do
+    sWas <- psSkipCharsP <$> getState
+    modifyState $ \st -> st {psSkipCharsP = s : sWas}
+    let
+        scan as = try (end as) <|> cont as 
+        end as = p >> return as
+        cont as = (:as) <$> i' >>= scan 
+        guardFail = (((False,) <$> (lookAhead . try) f) <|> return (True,"")) >>= \(c,e) -> unless c $  unexpected e
+        i' = guardFail >> i
+    as <- scan []
+    modifyState $ \st -> st {psSkipCharsP = sWas}
+    return $ reverse  as
 ---------------------------------------------------------------------------------------------
 -- common parsing
 ---------------------------------------------------------------------------------------------
@@ -445,14 +462,25 @@ inlineFormat':: EncType                 -- Type
              -> String                  -- Delimeter
              -> String                  -- Delimeter
              -> MyParser [Inline]
+{-inlineFormat' t s e = let-}
+        {-sc   = string e >> notFollowedBy normalWord-}
+        {-ps   = try (matchedPuncSpaceOrFirst >>= guard >> string s >> (lookAhead . try $ printChar))  >> (getInput >>= traceMS ("fmtS "++e))-}
+        {-lb   =  void . satisfy $ not . C.isSpace-}
+        {-endP =  (try . void . string $ e) >> (notFollowedBy . try $ normalWord)-}
+        {-endF =  lookAhead . choice . map try $ failInlineList-}
+        {-in try(getInline >>= \i ->  collapseInlines <$> onlyMostInner t (ps >> manyEndHist sc 1 lb endP endF i)) >>= (<$ (getInput >>= traceMS ("fmt "++e)))-}
 inlineFormat' t s e = let
         sc   = string e >> notFollowedBy normalWord
-        ps   = try (matchedPuncSpaceOrFirst >>= guard >> string s >> (lookAhead . try $ printChar)) 
-        --lb   = void printChar
-        lb   =  void . satisfy $ not . C.isSpace
-        endP =  (try . void . string $ e) >> (notFollowedBy . try $ normalWord)
+        ps   = try (matchedPuncSpaceOrFirst >>= guard >> string s >> (notFollowedBy . try $ sc) >> (lookAhead . try $ printChar))
+        endP =  endPfx >>= guard >> (try . void . string $ e) >> (notFollowedBy . try $ normalWord)
         endF =  lookAhead . choice . map try $ failInlineList
-        in try(getInline >>= \i ->  collapseInlines <$> onlyMostInner t (ps >> manyEndHist sc 1 lb endP endF i))
+        endPfx = chk .  psBlockInlStack <$> getState
+            where 
+            chk []             = False
+            chk (Space:_)      = False
+            chk (LineBreak:_)  = False
+            chk _              = True
+        in try(getInline >>= \i ->  collapseInlines <$> onlyMostInner t (ps >> manyEndPF sc endP endF i))
 
 inlineVerbatim :: EncType               -- Type
              -> String                  -- Delimeter
