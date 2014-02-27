@@ -692,9 +692,11 @@ inlineToOpenXML opts (Subscript lst) =
 inlineToOpenXML opts (Superscript lst) =
   withTextProp (mknode "w:vertAlign" [("w:val","superscript")] ())
   $ inlinesToOpenXML opts lst
+-- HPS mapping SmallCaps to underline
 inlineToOpenXML opts (SmallCaps lst) =
-  withTextProp (mknode "w:smallCaps" [] ())
+  withTextProp (mknode "w:u" [] ())         -- HPS mapping SmallCaps to underline
   $ inlinesToOpenXML opts lst
+-- HPS mapping SmallCaps to underline
 inlineToOpenXML opts (Strikeout lst) =
   withTextProp (mknode "w:strike" [] ())
   $ inlinesToOpenXML opts lst

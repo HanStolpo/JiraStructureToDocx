@@ -337,11 +337,13 @@ listContent = oneOfBlocks [numberedList, bulletList, paragraph, table]
 data ListType = ListB | ListN deriving (Eq, Show)
 anyListStart :: MyParser (ListType, String)
 anyListStart = (optional . try $ eol) >> bol >> skipSpaces 
-    >> (fromJust . (`lookup`m) . last &&& id) <$> many1 (oneOfNonSkipChar s) 
+    >> (fromJust . (`lookup`m) . last &&& id) <$> many1 (oneOf s) 
     >>= (<$ skipSpaces1)
     >>= (\(t,p) -> case p of
                        '-':[] -> return (t,p)
-                       '-':_  -> fail "list with - limited to one char"
+                       '-':as 
+                            | '-' `elem` as -> fail "list with - limited to one char"
+                            | otherwise -> return (t,p)
                        _      -> return (t,p)
         )
     where 
@@ -358,6 +360,7 @@ anyList t = do
                 enc = manyEnd' mzero end listContent 
                 end = choice [ lookAhead . try $ lowerList
                              , lookAhead . try $ changeList
+                             , lookAhead . try $ changeList'
                              , lookAhead . try $ thisList
                              , void . lookAhead . try $ blankLine
                              , void . lookAhead . try $ horizRule
@@ -367,8 +370,10 @@ anyList t = do
                 lowerList = (< d) . length . snd <$> anyListStart >>= guard
                 -- check this list
                 thisList = (pfx==) . snd <$> anyListStart >>=  guard 
-                -- list depth is the same or higher but the prefix doesn't match
-                changeList = (\a -> d <= length a && (not . isPrefixOf pfx) a) . snd <$> anyListStart >>= guard
+                -- list depth is the same or higher but the prefix doesn't match (non numbered list)
+                changeList = (\a -> t /= ListN && d <= length a && (not . isPrefixOf pfx) a) . snd <$> anyListStart >>= guard
+                -- list depth is the same but characters are not the same
+                changeList' = (\a -> d == length a && pfx /= a) . snd <$> anyListStart >>= guard
                 -- repeatedly parse list elements
                 scan xss = enc >>= \xs -> (try thisList >> scan (xs:xss)) <|> return (xs:xss)
             case t of

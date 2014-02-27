@@ -436,6 +436,20 @@ descriptionParserTests = test
                 Right (toList $ para $ emph (strong . str $ "LFK1.a"))
                 ~=? testP prsDesc ("_*LFK1.a*_"),
                 
+            "dash bullet points" ~:
+                Right (toList $ bulletList [ para . str <| "A" <> bulletList [para . str <| "AA"]
+                                           , para . str <| "B" <> bulletList [para . str <| "BB"]
+                                           ]
+                                <> para . text <| "\2013 BD"
+                                        
+                      )
+                ~=? testP prsDesc ("- A \n"
+                                ++ "-* AA\n"
+                                ++ "- B \n"
+                                ++ "-* BB\n"
+                                ++ "\n"
+                                ++ "-- BD"
+                                ),
 
             "dummy end" ~: True ~=? True
         ]
