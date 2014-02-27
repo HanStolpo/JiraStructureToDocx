@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, DeriveGeneric, RankNTypes #-}
+{-# LANGUAGE FlexibleContexts, RankNTypes #-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 
 module StdStrFetch  (fetchStdSrc
@@ -87,7 +87,7 @@ fetchTestStepResults opts man sid = do
               -- "/rest/zapi/latest/stepResult?executionId=592&expand=executionStatus"
     let url =  "/rest/zapi/latest/stepResult?executionId=" ++ show sid ++ "&expand=executionStatus"  
         req = _makeReq opts url
-    decodeTestStepResultsResponse . responseBody <$> httpLbs req man
+    decodeTestStepResultsResponse .  responseBody <$> httpLbs req man
 
 fetchTestIssueById :: Query_ Int Issue
 fetchTestIssueById opts _ iid = do
@@ -103,7 +103,7 @@ fetchStdTestSrc opts man sc = do
     let iid = Z.issueId sc
     issue <- _fromEither =<< fetchTestIssueById opts man iid
     let storyIds = _getTestsIssueIds issue
-    stories <- forM storyIds (\i -> _fromEither =<< fetchTestIssueById opts man i)
+    stories <- forM storyIds (_fromEither <=< fetchTestIssueById opts man)
     steps <- _fromEither =<< fetchTestStepInfos opts man iid
     return $ Right StdTestSrc{stdIssue = issue, stdStories = stories, stdSteps = steps}
 
@@ -147,18 +147,26 @@ fetchStrTestSrc opts man sc = do
         sid = executionId sc
     issue <- _fromEither =<< fetchTestIssueById opts man iid
     let storyIds = _getTestsIssueIds issue
-    stories <- forM storyIds (\i -> _fromEither =<< fetchTestIssueById opts man i)
+    stories <- forM storyIds (_fromEither <=< fetchTestIssueById opts man)
     stepInfos <- _fromEither =<< fetchTestStepInfos opts man iid
     stepResults <- _fromEither =<< fetchTestStepResults opts man sid
     {-let steps = filter chkTpl $ zip (sortWith stepInfoId stepInfos)(sortWith stepResInfoId stepResults)-}
         {-chkTpl (i,r) = stepInfoId i == stepResInfoId r-}
-    let steps = gobble (sortWith stepInfoId stepInfos)(sortWith stepResInfoId stepResults)
+    let steps = gobble (sortWith stepInfoId stepInfos) results
+        results  = foldr dropDups [] . sortWith stepResInfoId $ stepResults
         gobble [] _ = []
         gobble is [] = map defJoin is
         gobble (i:is) (r:rs) 
             | stepInfoId i == stepResInfoId r = (i,r) : gobble is rs
             | otherwise = defJoin i : gobble is (r:rs)
         defJoin i = (i, TestStepResult{stepResId = 0, stepResInfoId = stepInfoId i, stepResStatus = TestUnexecuted, stepResComment = ""})
+        dropDups r []                                               = [r]
+        dropDups ra (rb:rs)  | stepResInfoId ra == stepResInfoId rb = chooseR ra rb : rs
+        dropDups r rs                                               = r : rs
+        chooseR ra rb 
+            | stepResStatus ra == TestUnexecuted && stepResStatus rb /= TestUnexecuted = rb
+            | stepResStatus ra /= TestUnexecuted && stepResStatus rb == TestUnexecuted = ra
+            | otherwise  = error $ "duplicate step results and one is not enexcuted " ++ pretty ra ++ " " ++ pretty rb
     return $ Right StrTestSrc{strIssue = issue, strStories = stories, strResult = sc, strSteps = sortWith (stepInfoOrdId . fst) steps}
 
 _fetchStrSrc :: Query_ String StrSrc

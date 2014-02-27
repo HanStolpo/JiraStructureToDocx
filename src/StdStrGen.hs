@@ -30,7 +30,7 @@ import IssueHierarchy
 import DescriptionParser
 import DocxCustom
 
--- import Debug.Trace
+import Debug.Trace
 
 _simpleTable :: [Blocks] -> [[Blocks]] -> Blocks
 _simpleTable headers = table mempty (map (const defaults) headers) headers
@@ -132,6 +132,28 @@ _htmlText :: String -> Blocks
 _htmlText s = case readHtml def .filter (/='\r') $ s of
                         Pandoc _ bs -> fromList  bs
 
+-- html to blocks breaking line breaks into paragraphs
+_htmlTextPara :: String -> Blocks
+_htmlTextPara = fromList . foldr f [] .  toList . _htmlText
+    where
+        -- turn Plain into Para and breakup inlines for both
+        f (Plain is) bs  = map trm . filter e . foldr g (Para [] : bs) $ is
+        f (Para is) bs   = map trm . filter e . foldr g (Para [] : bs) $ is
+        f a bs           = a : bs
+        -- break line breaks into paragraphs
+        g LineBreak bs      = Para [] : bs
+        g i (Para is : bs)  = Para (i:is) : bs
+        g _ _               = error "_htmlTextPara - should never be here"
+        -- drop empty paragraphs
+        e (Para []) = False
+        e _         = True
+        -- trim leading trainling spaces
+        trm (Para is) = Para (toList . trimInlines . fromList . filter lbs $ is)
+        trm b         = b
+        -- filter any line breaks
+        lbs LineBreak = False
+        lbs _         = True
+
 _cell :: String -> Blocks
 _cell  = plain . build 
     where
@@ -159,7 +181,7 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                 ss = strSteps t
                 hdr = header h $ text . J.issueKey <| ti <> str " - " <> text . issueSummary <| ti
                 stat = header (h+1) . text <| "Status" <> para . text . _statusToText . status <| tr
-                cmnt = header (h+1) . text <| "Comment" <> _htmlText . (\s-> if s =="" then "No comments." else s) . comment <| tr
+                cmnt = header (h+1) . text <| "Comment" <> _htmlTextPara . (\s-> if s =="" then "No comments." else s) . comment <| tr
                 desc = header (h+1) . text <| "Description" 
                         <> fromList . normHdrs . parseDescription 0 . filter (/= '\r') . fromMaybe "" . issueDescription <| ti
                 normHdrs :: [Block] -> [Block]
@@ -186,7 +208,7 @@ _strTestCases h ts = foldl (<>) (fromList []) . map toDoc . _orderTests $ ts
                                  ,_cell . stepInfoData . fst . fst $ s
                                  ,_cell . stepInfoExpect . fst . fst $ s
                                  ,_cell . _statusToText . stepResStatus . snd . fst $ s
-                                 ,_htmlText . stepResComment . snd . fst $ s]
+                                 ,_htmlTextPara . stepResComment . snd . fst $ s]
 
 _strTestCaseSummary :: [StrTestSrc] -> Blocks
 _strTestCaseSummary ts = if null rs 
@@ -232,7 +254,7 @@ _strRequirementTraceability ts  = table (text "") [(AlignLeft, 0.5/2),(AlignLeft
 
 
 _hierarchyExerpt :: TestDesc a => IssueHierarchy -> [a] -> Blocks
-_hierarchyExerpt is' tsts' = header 1 . text <| "Appendix A - SSS Excerpt" <>  expndChild 2  (filt is' tsts')
+_hierarchyExerpt is' tsts' = header 1 . text <| "Appendix A - RS Excerpt" <>  expndChild 2  (filt is' tsts')
     where
         expndChild :: Int -> IssueHierarchy -> Blocks
         expndChild l IssueHierarchyRoot {ihChildren = cs} = fromList . concatMap (toList . expndChild l) $ cs
