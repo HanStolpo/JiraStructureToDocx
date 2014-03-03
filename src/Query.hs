@@ -10,6 +10,7 @@ module Query  (query
               ,updateIssueDescription
               ,makeReq
               ,makeReqJson
+              ,fetchIssueById
               ) where
 
 import Network.HTTP.Conduit
@@ -18,8 +19,9 @@ import Network.HTTP.Types.Header
 import Network.HTTP.Types.Status
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)
 import Data.ByteString.Char8 as B (pack)
+import Text.PrettyPrint.GenericPretty
 
-import GHC.Generics
+--import GHC.Generics
 import Data.Maybe
 import Data.Aeson
 import Data.Aeson.Types (typeMismatch)
@@ -82,6 +84,14 @@ query opts = case optQueryString opts of
                     req = makeReq opts url
                     _decode :: ByteString -> Either String QueryRes_
                     _decode = eitherDecode
+
+fetchIssueById :: Options -> Int -> IO Issue
+fetchIssueById opts iid = withSocketsDo $ withManager $ \manager -> do
+    let url =  "/rest/api/latest/issue/" ++ show iid ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
+        req = makeReq opts url
+        err e = error $ "fetchIssueById - error fetching issue id = " ++ show iid ++ " with options = " ++ pretty opts ++ " reason = " ++ e
+    either err id . decodeIssueResponse . responseBody <$> httpLbs req manager
+
 
 -- Add a label to an issue
 addLabel :: Options     -- connection options
@@ -152,7 +162,7 @@ createIssue :: Options     -- connection options
             -> String      -- project ID
             -> String      -- Issue type
             -> Issue       -- data for the issue
-            -> IO (String, String)   -- the ID of the created issue exception on failure
+            -> IO (String, String)   -- the ID of the created issue exception on failure (issueId, issueKey)
 createIssue opts projId issueType i = withSocketsDo $ withManager $ \manager -> do
     let url = "/rest/api/2/issue"
         req = (makeReqJson opts url bdy){method = methodPost}
