@@ -87,8 +87,8 @@ case_serializeHierarchy = Just h @=? (AS.decode . (\s -> trace ("\n" ++ unpack s
                     }
                 ]
             }
--------------------------------------------------
--- Debug main
-------------------------------------------------
-main :: IO ()
-main = defaultMain [issueHierarchyTestGroup]
+-- -------------------------------------------------
+-- -- Debug main
+-- ------------------------------------------------
+-- main :: IO ()
+-- main = defaultMain [issueHierarchyTestGroup]

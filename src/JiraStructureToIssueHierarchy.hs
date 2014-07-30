@@ -1,11 +1,11 @@
 -- Blah blah
-{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse#-}
+{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse, BangPatterns#-}
 
 module JiraStructureToIssueHierarchy (fetchHierarchy, localizeImages, forestToHierarchy, decodeForest, Forest(..)) where
 
 import Network.HTTP.Conduit
+import Network.HTTP.Client.Conduit (defaultManagerSettings)
 import Network.HTTP.Types.Status
-import Data.Conduit
 import qualified Data.ByteString.Lazy as L
 {-import qualified Data.ByteString.Lazy.Char8 as L8-}
 import qualified Data.ByteString.Char8 as B
@@ -20,6 +20,7 @@ import Data.Yaml as YAML
 import Data.Typeable
 import Data.Data
 import Control.Monad.Error
+import Control.Monad.Trans.Resource
 import GHC.Generics
 import Control.Applicative
 import qualified Data.Attoparsec.Text as AP
@@ -42,7 +43,7 @@ import Query
 fetchHierarchy :: Options -> IO ()
 fetchHierarchy opts = withSocketsDo $ runResourceT $ do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optHierarchyFile $ opts
-    manager <- liftIO $ newManager def
+    manager <- liftIO $ newManager defaultManagerSettings
     let usrn = B.pack.fromJust.optUsr $ opts
     let pwd = B.pack.fromJust.optPwd $ opts
     let baseUrl = fromJust.optBaseUrl $ opts
@@ -175,13 +176,13 @@ forestToHierarchyIssue :: (MonadBaseControl IO m, MonadResource m) =>
                           -> Forest
                           -> Int
                           -> m IssueHierarchy
-forestToHierarchyIssue _ usrn pwd baseUrl forest i = withManager $ \manager -> do
+forestToHierarchyIssue manager usrn pwd baseUrl forest i = do -- withManager $ \manager -> do
     let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
         req' =  applyBasicAuth  usrn pwd  (fromJust $ parseUrl url)
         req = req' {responseTimeout = Just 60000000}
     res <- trace ("fetching " ++ show i) $ httpLbs req manager
-    jsIssue <- decodeIssue $ responseBody res
-    children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
+    !jsIssue <- decodeIssue $ responseBody res
+    !children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
     return $ IssueHierarchy jsIssue children
 
 forestToHierarchyNoIssue :: (MonadBaseControl IO m, MonadResource m) => 
@@ -192,7 +193,7 @@ forestToHierarchyNoIssue :: (MonadBaseControl IO m, MonadResource m) =>
                             -> Forest
                             -> m IssueHierarchy
 forestToHierarchyNoIssue manager usrn pwd baseUrl forest = do
-    children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
+    !children <- makeChildren manager usrn pwd baseUrl $ ftChildren forest
     return $ IssueHierarchyRoot children
 
 makeChildren :: (MonadBaseControl IO m, MonadResource m) =>

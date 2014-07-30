@@ -421,5 +421,5 @@ case_decodeProjectCycles = Right expected @=? decodeProjectCyclesResponse s
 -------------------------------------------------
 -- Debug main
 ------------------------------------------------
-main :: IO ()
-main = defaultMain [zephyrJsonTestGroup]
+-- main :: IO ()
+-- main = defaultMain [zephyrJsonTestGroup]

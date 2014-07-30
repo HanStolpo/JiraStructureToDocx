@@ -9,6 +9,7 @@ module StdStrFetch  (fetchStdSrc
 import GHC.Exts
 
 import Network.HTTP.Conduit
+import Network.HTTP.Client.Conduit (defaultManagerSettings)
 import Data.ByteString.Lazy.Char8 ()
 import Data.ByteString.Char8 as B (pack)
 
@@ -42,7 +43,7 @@ type Query_ a b = forall m. (MonadBaseControl IO m, MonadResource m) =>
 _fromEither :: Monad m => Either String b -> m b
 _fromEither = either fail return 
 
-_makeReq :: (MonadBaseControl IO m, MonadResource m) => Options -> String -> Request m
+_makeReq :: Options -> String -> Request
 _makeReq opts url'' = (applyBasicAuth usr pwd url) {responseTimeout = Just (30 * 1000000)}
         where
             usr = pack . fromJust . optUsr $ opts
@@ -92,7 +93,7 @@ fetchTestStepResults opts man sid = do
 fetchTestIssueById :: Query_ Int Issue
 fetchTestIssueById opts _ iid = do
     -- repeated use of same connection is resulting the following bug (InvalidStatusLine "" when reusing a connection #117) in HTTP Conduit
-    man <- liftIO $ newManager def 
+    man <- liftIO $ newManager defaultManagerSettings 
     let url =  "/rest/api/latest/issue/" ++ show iid ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
         req = _makeReq opts url
     decodeIssueResponse . responseBody <$> httpLbs req man
@@ -121,7 +122,7 @@ _extractOpenStdIssues ts = S.fromList . map J.issueKey . concatMap f $ ts
 fetchStdSrc :: Options -> IO ()
 fetchStdSrc opts = withSocketsDo $ runResourceT $ do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optStrStdFile $ opts
-    manager <- liftIO $ newManager def
+    manager <- liftIO $ newManager defaultManagerSettings
     std' <- _fromEither =<< _fetchStdSrc opts manager (fromJust . optCycleName $ opts)
     liftIO $ putStrLn "Localising images"
     let images = extractImagesFromTests (stdTests std')
@@ -178,7 +179,7 @@ _fetchStrSrc opts man cn = do
 fetchStrSrc :: Options -> IO ()
 fetchStrSrc opts = withSocketsDo $ runResourceT $ do
     liftIO $ createDirectoryIfMissing True $ dropFileName . optStrStdFile $ opts
-    manager <- liftIO $ newManager def
+    manager <- liftIO $ newManager defaultManagerSettings
     let cn = (fromJust . optCycleName $ opts)
     str' <- _fromEither =<< _fetchStrSrc opts manager cn
     liftIO $ putStrLn "Localising images"

@@ -189,8 +189,8 @@ decodeJsIssue s = case AS.eitherDecode s of
 decodeIssueResponse :: ByteString  -> Either String Issue
 decodeIssueResponse = fmap jsiGetIssue . decodeJsIssue
 
-decodeJsIssueResponse :: ByteString  -> Either String JsIssue
-decodeJsIssueResponse = AS.eitherDecode 
+-- decodeJsIssueResponse :: ByteString  -> Either String JsIssue
+-- decodeJsIssueResponse = AS.eitherDecode 
 
 case_decodeIssueResponse :: Assertion
 case_decodeIssueResponse = Right expected @=? decodeIssueResponse s
@@ -396,5 +396,5 @@ case_deserializeIssue = Right i @=? AS.eitherDecode s
 -------------------------------------------------
 -- Debug main
 ------------------------------------------------
-main :: IO ()
-main = defaultMain [jiraTypesTestGroup]
+-- main :: IO ()
+-- main = defaultMain [jiraTypesTestGroup]

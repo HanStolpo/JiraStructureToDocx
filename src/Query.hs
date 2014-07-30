@@ -50,7 +50,7 @@ instance FromJSON QueryRes_ where
         return $ QueryRes_ _total (map jsiGetIssue _issues)
     parseJSON a = typeMismatch "Expecting JSON object for JsIssue" a
 
-makeReq ::  Options -> String -> Request m
+makeReq ::  Options -> String -> Request
 makeReq opts urlSuf =  (applyBasicAuth usr pwd . fromJust . parseUrl $ url){responseTimeout = Just 30000000}
     where
         usr = pack . fromJust . optUsr $ opts
@@ -58,7 +58,7 @@ makeReq opts urlSuf =  (applyBasicAuth usr pwd . fromJust . parseUrl $ url){resp
         baseUrl = fromJust . optBaseUrl $ opts  
         url = baseUrl ++ urlSuf
 
-makeReqJson :: Options -> String -> String -> Request m
+makeReqJson :: Options -> String -> String -> Request 
 makeReqJson opts urlSuf bdy = req {requestHeaders = modH . requestHeaders $ req, requestBody = RequestBodyBS . pack $ bdy}
     where
         req = makeReq opts urlSuf
