@@ -626,8 +626,10 @@ data ImageLink = ImageLink
 imageRaw :: MyParser ImageLink
 imageRaw = do
     s <- inlineVerbatim EncImage "!" 
-    (l,a) <- parseFromString _prsLinkAttr s
-    return $ ImageLink l a
+    -- (l,a) <- parseFromString _prsLinkAttr s
+    -- return $ ImageLink l a
+    (l,_) <- parseFromString _prsLinkAttr s
+    return $ ImageLink l Nothing
     where
         _prsLinkAttr = do
             l <- many $ noneOf "|"
