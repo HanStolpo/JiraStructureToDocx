@@ -22,6 +22,7 @@ import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.Framework.TH
 import qualified Data.Aeson as AS
+import Control.DeepSeq
 -- import Text.RawString.QQ
 
 import Data.ByteString.Lazy.Char8 (unpack)     -- only import string instances for overloaded strings
@@ -41,6 +42,10 @@ data IssueHierarchy = IssueHierarchyRoot {ihChildren :: [IssueHierarchy]}
 instance Out IssueHierarchy
 instance AS.ToJSON IssueHierarchy 
 instance AS.FromJSON IssueHierarchy 
+
+instance NFData IssueHierarchy where
+    rnf IssueHierarchyRoot {..} = rnf ihChildren
+    rnf IssueHierarchy {..} = rnf ihChildren `seq` rnf ihIssue
 
 case_serializeHierarchy :: Assertion
 case_serializeHierarchy = Just h @=? (AS.decode . (\s -> trace ("\n" ++ unpack s ++ "\n") s) . prettyJson . AS.encode $ h)

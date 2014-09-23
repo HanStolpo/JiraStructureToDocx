@@ -10,6 +10,7 @@
   , TypeSynonymInstances 
   , FlexibleInstances 
   , ScopedTypeVariables
+  , RecordWildCards
   #-}
 module JiraTypes   ( Attachment(..)
                     , Issue(..)
@@ -41,7 +42,7 @@ import Control.Applicative((<$>), (<*>), (<|>))
 import Control.Monad
 import Data.Default
 import Debug.Trace
-
+import Control.DeepSeq
 import Utility
 
 ------------------------------------------
@@ -65,6 +66,11 @@ instance Out Attachment
 instance AS.ToJSON Attachment 
 instance AS.FromJSON Attachment 
 
+instance NFData Attachment where
+    rnf Attachment { .. } =  rnf attMimeType 
+                            `seq` rnf attUri
+                            `seq` rnf attFileName
+                            `seq` ()
 -- proxy type to handle parsing jira response
 newtype JsAttachment = JsAttachment {jsiGetAttachment :: Attachment} deriving (Eq, Show, Read, Generic)
 -- Make the attachment JSON deserializable
@@ -87,6 +93,10 @@ data IssueLink = Outward String Int String | Inward String Int String -- Directi
 instance Out IssueLink
 instance AS.ToJSON IssueLink 
 instance AS.FromJSON IssueLink 
+
+instance NFData IssueLink where
+    rnf (Outward d i k) =  rnf d `seq` rnf i `seq` rnf k `seq` ()
+    rnf (Inward d i k) =  rnf d `seq` rnf i `seq` rnf k `seq` ()
 
 issueLinkDescription :: IssueLink -> String
 issueLinkDescription (Outward d _ _) = d
@@ -156,6 +166,19 @@ instance Default Issue where
 
 defIssue :: Issue
 defIssue = Issue 0 "" "" Nothing "" [] [] [] Nothing Nothing
+
+instance NFData Issue where
+    rnf Issue { .. } =  rnf issueId 
+                `seq` rnf issueKey 
+                `seq` rnf issueSummary
+                `seq` rnf issueDescription
+                `seq` rnf issueStatus
+                `seq` rnf issueAttachments
+                `seq` rnf issueLinks
+                `seq` rnf issueLabels
+                `seq` rnf issueStoryPoints
+                `seq` rnf issueSources
+                `seq` ()
 
 -- proxy type for decoding jira response
 newtype JsIssue = JsIssue {jsiGetIssue :: Issue} deriving (Eq, Show, Read, Generic)
