@@ -1,7 +1,7 @@
 -- Blah blah
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse, BangPatterns#-}
 
-module JiraStructureToIssueHierarchy (fetchHierarchy, localizeImages, forestToHierarchy, decodeForest, Forest(..)) where
+module JiraStructureToIssueHierarchy (fetchHierarchy, localizeImages, forestToHierarchy, forestToHierarchy', decodeForest, Forest(..)) where
 
 import Network.HTTP.Conduit
 import Network.HTTP.Client.Conduit (defaultManagerSettings)

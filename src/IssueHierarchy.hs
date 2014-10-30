@@ -12,6 +12,8 @@
   #-}
 module IssueHierarchy   ( IssueHierarchy(..)
                         , issueHierarchyTestGroup
+                        , foldrHierarchy
+                        , foldrHierarchyIssues
                         ) where
 
 import GHC.Generics
@@ -46,6 +48,18 @@ instance AS.FromJSON IssueHierarchy
 instance NFData IssueHierarchy where
     rnf IssueHierarchyRoot {..} = rnf ihChildren
     rnf IssueHierarchy {..} = rnf ihChildren `seq` rnf ihIssue
+
+foldrHierarchy :: (IssueHierarchy -> a -> a) -> a -> IssueHierarchy -> a
+foldrHierarchy f z h = go h z
+    where
+        go (IssueHierarchyRoot cs)  = foldr ((.) . go) id cs
+        go h'@(IssueHierarchy _ cs)    = f h' . foldr ((.) . go) id cs
+
+foldrHierarchyIssues :: (Issue -> a -> a) -> a -> IssueHierarchy -> a
+foldrHierarchyIssues f z h = go h z
+    where
+        go (IssueHierarchyRoot cs)  = foldr ((.) . go) id cs
+        go (IssueHierarchy i cs)    = f i . foldr ((.) . go) id cs
 
 case_serializeHierarchy :: Assertion
 case_serializeHierarchy = Just h @=? (AS.decode . (\s -> trace ("\n" ++ unpack s ++ "\n") s) . prettyJson . AS.encode $ h)
