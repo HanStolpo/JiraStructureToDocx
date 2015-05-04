@@ -4,6 +4,7 @@
 module StdStrFetch  (fetchStdSrc
                     ,fetchStrSrc
                     ,fetchCycleIdFromName
+                    ,fetchStrTestSrc
                     ,fetchCycleExecutions
                     ) where
 import GHC.Exts
