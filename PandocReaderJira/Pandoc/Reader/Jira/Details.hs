@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables, TupleSections, BangPatterns #-}
  -- GHC_STATIC_OPTION_i=../src:../testsuite
-module DescriptionParserInner where
+module Pandoc.Reader.Jira.Details where
 
 import qualified Data.Char as C
 import Control.Monad

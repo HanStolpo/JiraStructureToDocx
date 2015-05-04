@@ -1,7 +1,7 @@
-Name:           JiraStructureToDocx
+Name:           PandocReaderJira
 Version:        0.0
 Stability:      experimental
-Description:    Utility to convert a Structure in Jira to a MS Word document.
+Description:    Parse a subset of Jira markup to Pandoc markup 
 License:        MIT
 License-file:   LICENSE
 Author:         Handré Petrus Stolp
@@ -9,85 +9,29 @@ Maintainer:     HanStolpo@gmail.com
 Build-Type:     Simple
 Cabal-Version:  >= 1.20.0
 
-executable JiraStructureToDocx
-    main-is:            JiraStructureToDocx.hs
+library 
     default-language:   Haskell2010
     GHC-Options:        -Wall -O -rtsopts
-    hs-source-dirs:     src
-    Other-Modules:      DescriptionParser, ImageStripper, IssueHierarchy, ProgramOptions, IssueHierarchyToDocx, JiraStructureToIssueHierarchy, ZephyrJson, JiraTypes, IssueHierarchyToFsDocx, DocxCustom, Highlighting, ImageSize, MIME, Query
-    build-depends:      base, 
-                        containers >=0.1 && <0.6,
-                        syb,
-                        base64-bytestring,
-                        tagsoup,
-                        old-locale,
-                        HTTP,
-                        http-conduit, 
-                        http-types, 
-                        json, 
-                        aeson, 
-                        attoparsec, 
-                        pretty, 
-                        GenericPretty, 
-                        directory,
-                        mtl,
-                        conduit == 1.1.7,
-                        conduit-extra ,
-                        transformers,
-                        network,
-                        bytestring,
-                        HUnit,
+    hs-source-dirs:     ./
+    Exposed-Modules:    Pandoc.Reader.Jira
+    Other-Modules:      Pandoc.Reader.Jira.Details 
+    build-depends:      base,
                         parsec,
-                        highlighting-kate ,
                         pandoc == 1.12.4.2,
                         pandoc-types == 1.12.4,
-                        cmdargs,
-                        safe,
-                        blaze-markup,
-                        utf8-string,
-                        filepath,
-                        test-framework-th,
-                        test-framework,
-                        test-framework-hunit,
-                        raw-strings-qq,
-                        resourcet,
-                        monad-control,
-                        random,
-                        texmath,
-                        xml,
-                        time,
-                        zip-archive,
-                        data-default,
-                        text,
-                        yaml,
-                        strings,
-                        csv,
-                        unordered-containers == 0.2.*,
-                        binary,
-                        deepseq
+                        safe
 
 
-Test-Suite test-parser
+Test-Suite test
     type:               exitcode-stdio-1.0
     default-language:   Haskell2010
-    hs-source-dirs:     testsuite, src
-    main-is:            TestDescriptionParser.hs
-    other-modules:      DescriptionParser
+    hs-source-dirs:     ./
+    main-is:            ./Pandoc/Reader/Jira/Test.hs
+    Other-Modules:      Pandoc.Reader.Jira.Details 
     build-depends:      base, 
-                        parsec, 
-                        pretty, 
+                        parsec,
                         pandoc == 1.12.4.2,
                         pandoc-types == 1.12.4,
-                        HUnit, 
-                        GenericPretty,
-                        bytestring,
-                        blaze-markup,
-                        utf8-string,
-                        data-default,
-                        text,
-                        yaml,
-                        strings,
-                        raw-strings-qq,
-                        csv,
-                        deepseq
+                        safe,
+                        HUnit
 

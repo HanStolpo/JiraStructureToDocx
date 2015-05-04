@@ -1,12 +1,8 @@
 {-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables#-}
-
--- GHC_STATIC_OPTION_i=../src:../testsuite
-
-
 module Main where
 
-import DescriptionParserInner hiding (subscript, superscript, strong, bulletList,table, image)
-import qualified DescriptionParserInner as D (subscript, superscript, strong, bulletList,table)
+import Pandoc.Reader.Jira.Details hiding (subscript, superscript, strong, bulletList,table, image)
+import qualified Pandoc.Reader.Jira.Details as D (subscript, superscript, strong, bulletList,table)
 import Test.HUnit
 import System.Exit (exitFailure)
 import Text.Parsec
