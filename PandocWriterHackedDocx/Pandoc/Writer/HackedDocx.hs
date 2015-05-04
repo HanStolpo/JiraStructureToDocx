@@ -29,7 +29,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 Conversion of 'Pandoc' documents to docx.
 -}
-module DocxCustom ( writeDocxCustom ) where -- module Text.Pandoc.Writers.Docx ( writeDocx ) where
+module Pandoc.Writer.HackedDocx ( writeDocxCustom ) where -- module Text.Pandoc.Writers.Docx ( writeDocx ) where
 import Data.Maybe (fromMaybe)
 import Data.List ( intercalate, isPrefixOf, isSuffixOf )
 import qualified Data.ByteString as B
