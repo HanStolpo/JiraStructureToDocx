@@ -3,12 +3,12 @@
 import System.Exit(exitSuccess)
 import Text.PrettyPrint.GenericPretty as GP
 -- local files
-import JiraStructureToIssueHierarchy
-import IssueHierarchyToDocx
-import IssueHierarchyToFsDocx
-import ProgramOptions
-import StdStrFetch
-import StdStrGen
+import Jira.JiraStructureToIssueHierarchy
+import Jira.IssueHierarchyToDocx
+import Jira.IssueHierarchyToFsDocx
+import Jira.ProgramOptions
+import Jira.StdStrFetch
+import Jira.StdStrGen
  
 main :: IO Int
 main = do

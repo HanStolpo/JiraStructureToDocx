@@ -1,4 +1,4 @@
-Name:           JiraStructureToDocx
+Name:           JiraHaskell
 Version:        0.0
 Stability:      experimental
 Description:    Utility to convert a Structure in Jira to a MS Word document.
@@ -21,7 +21,9 @@ library
                         Jira.ZephyrJson, 
                         Jira.JiraTypes, 
                         Jira.IssueHierarchyToFsDocx, 
-                        Jira.Query
+                        Jira.Query,
+                        Jira.StdStrFetch,
+                        Jira.StdStrGen
 
     build-depends:      PandocReaderJira,
                         PandocWriterHackedDocx,
