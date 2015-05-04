@@ -168,3 +168,4 @@ pip-log.txt
 /experiment
 /src/Reference.docx
 ~*
+cabal.sandbox.config
