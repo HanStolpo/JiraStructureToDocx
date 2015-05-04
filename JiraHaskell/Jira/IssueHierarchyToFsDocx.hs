@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables, NamedFieldPuns, RecordWildCards#-}
 
-module IssueHierarchyToFsDocx (genFsDoc) where
+module Jira.IssueHierarchyToFsDocx (genFsDoc) where
 
 import Data.Maybe
 import Data.Monoid
@@ -21,12 +21,12 @@ import qualified Data.Yaml as YAML
 --import Text.Blaze.Renderer.String
 import System.FilePath
 -- Local imports
-import IssueHierarchy
-import JiraTypes
-import DescriptionParser
-import ProgramOptions
-import DocxCustom
-import qualified IssueHierarchyToDocx as ID
+import Jira.IssueHierarchy
+import Jira.JiraTypes
+import Jira.ProgramOptions
+import qualified Jira.IssueHierarchyToDocx as ID
+import Pandoc.Reader.Jira
+import Pandoc.Writer.HackedDocx
  
 genFsDoc :: Options -> IO ()
 genFsDoc opts = do
@@ -150,11 +150,12 @@ trmSssToFs :: (Issue -> String) -> [IssueHierarchy] -> [IssueHierarchy] -> CSV
 trmSssToFs idIssue fs sss = concatMap (sortBy cmpC3) . groupBy grpC1 . sortBy cmpC1 . map f $ trm idIssue fs sss
     where
         f [fsKey, fsSum, fsSrc, ssKey, ssSum] = [ssKey, ssSum, fsKey, fsSum, fsSrc]
+        f _ = error "IssueHierarchyToFsDocx.hs trmSssToFs list pattern mismatch"
         grpC1 = (==) `on` issueKeyToInt . head
         cmpC1 = compare `on` issueKeyToInt . head
         cmpC3 = compare `on` issueKeyToInt . head . drop 2
 
-main :: IO ()
-main = do
-    let opts = optionsDefault {optDocxFile = "../Output/FsTrace.docx", optHierarchySssFile = Just "../Output/LynxSssIssueHierarchy.yaml", optHierarchyFile = "../Output/LynxFsHierarchy.txt"}
-    genFsDoc opts
+{-main :: IO ()-}
+{-main = do-}
+    {-let opts = optionsDefault {optDocxFile = "../Output/FsTrace.docx", optHierarchySssFile = Just "../Output/LynxSssIssueHierarchy.yaml", optHierarchyFile = "../Output/LynxFsHierarchy.txt"}-}
+    {-genFsDoc opts-}

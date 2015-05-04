@@ -10,7 +10,7 @@
   , TypeSynonymInstances 
   , FlexibleInstances 
   #-}
-module ZephyrJson   ( TestStatus(..)
+module Jira.ZephyrJson   ( TestStatus(..)
                     , TestStepInfo(..)
                     , TestStepResult(..)
                     , Execution(..)

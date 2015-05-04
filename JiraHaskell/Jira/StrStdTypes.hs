@@ -1,13 +1,13 @@
 {-# LANGUAGE DeriveGeneric #-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 
-module StrStdTypes  where
+module Jira.StrStdTypes  where
  
 import GHC.Generics
 import Text.PrettyPrint.GenericPretty as GP
 -- internal
-import JiraTypes
-import ZephyrJson
+import Jira.JiraTypes
+import Jira.ZephyrJson
 
 
 newtype StdSrc = StdSrc

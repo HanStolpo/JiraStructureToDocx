@@ -1,7 +1,7 @@
 -- Blah blah
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, TupleSections, DoAndIfThenElse, BangPatterns#-}
 
-module JiraStructureToIssueHierarchy (fetchHierarchy, localizeImages, forestToHierarchy, forestToHierarchy', decodeForest, Forest(..)) where
+module Jira.JiraStructureToIssueHierarchy (fetchHierarchy, localizeImages, forestToHierarchy, forestToHierarchy', decodeForest, Forest(..)) where
 
 import Network.HTTP.Conduit
 import Network.HTTP.Client.Conduit (defaultManagerSettings)
@@ -35,11 +35,11 @@ import System.Directory
 import System.FilePath
 import Control.DeepSeq
 -- local files
-import IssueHierarchy
-import ImageStripper
-import ProgramOptions
-import JiraTypes
-import Query
+import Jira.IssueHierarchy
+import Jira.ImageStripper
+import Jira.ProgramOptions
+import Jira.JiraTypes
+import Jira.Query
  
 fetchHierarchy :: Options -> IO ()
 fetchHierarchy opts =  withSocketsDo $ runResourceT $ do

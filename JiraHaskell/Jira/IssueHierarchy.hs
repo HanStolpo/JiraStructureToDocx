@@ -10,7 +10,7 @@
   , TypeSynonymInstances 
   , FlexibleInstances 
   #-}
-module IssueHierarchy   ( IssueHierarchy(..)
+module Jira.IssueHierarchy   ( IssueHierarchy(..)
                         , issueHierarchyTestGroup
                         , foldrHierarchy
                         , foldrHierarchyIssues
@@ -30,8 +30,8 @@ import Control.DeepSeq
 import Data.ByteString.Lazy.Char8 (unpack)     -- only import string instances for overloaded strings
 import Debug.Trace
 
-import JiraTypes
-import Utility
+import Jira.JiraTypes
+import Jira.Utility
 
 ------------------------------------------
 -- embed templated test case handling

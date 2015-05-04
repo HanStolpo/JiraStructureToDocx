@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, TupleSections #-}
-module Utility   ( prettyJson
+module Jira.Utility   ( prettyJson
                     ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)     -- only import string instances for overloaded strings

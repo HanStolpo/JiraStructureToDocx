@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, ScopedTypeVariables, RecordWildCards, RankNTypes#-}
 
-module IssueHierarchyToDocx (genDoc, hierarchyToDoc, idFromLink) where
+module Jira.IssueHierarchyToDocx (genDoc, hierarchyToDoc, idFromLink) where
 
 import Data.Maybe
 import Control.Monad.Error
@@ -23,11 +23,11 @@ import System.FilePath
 import Safe
 import Debug.Trace
 -- Local imports
-import IssueHierarchy
-import JiraTypes
-import DescriptionParser
-import ProgramOptions
-import DocxCustom
+import Jira.IssueHierarchy
+import Jira.JiraTypes
+import Jira.ProgramOptions
+import Pandoc.Reader.Jira
+import Pandoc.Writer.HackedDocx
  
 genDoc :: Options -> IO ()
 genDoc opts = do

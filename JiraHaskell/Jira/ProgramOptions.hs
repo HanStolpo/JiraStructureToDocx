@@ -2,7 +2,7 @@
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 -- RUN_GHC_COMMAND_ARGS = --gen-doc-only --hierarchy-file=../bin/IssueHierarchy.txt
 
-module ProgramOptions   ( Operation(..)
+module Jira.ProgramOptions   ( Operation(..)
                         , Options(..)
                         , optionsDefault
                         , processCmdArgs

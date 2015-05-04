@@ -1,6 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables, RecordWildCards #-}
 
-module StdStrGen    ( genStr
+module Jira.StdStrGen    ( genStr
                     , genStd
                     )
                     where
@@ -22,13 +22,13 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Yaml as YAML
 -- private imports
-import ProgramOptions
-import StrStdTypes
-import ZephyrJson as Z
-import JiraTypes as J
-import IssueHierarchy
-import DescriptionParser
-import DocxCustom
+import Jira.ProgramOptions
+import Jira.StrStdTypes
+import Jira.ZephyrJson as Z
+import Jira.JiraTypes as J
+import Jira.IssueHierarchy
+import Pandoc.Reader.Jira
+import Pandoc.Writer.HackedDocx
 
 import Debug.Trace
 

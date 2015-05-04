@@ -1,17 +1,16 @@
--- Blah blah
- {-# LANGUAGE OverloadedStrings, DeriveDataTypeable, FlexibleContexts, DeriveGeneric, BangPatterns, RecordWildCards#-}
-module ImageStripper where
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, DeriveGeneric, BangPatterns, RecordWildCards#-}
+module Jira.ImageStripper where
 import Data.Char
 import Control.Applicative
 import GHC.Generics
 import Text.PrettyPrint.GenericPretty as GP
-import IssueHierarchy
-import DescriptionParser
+import Pandoc.Reader.Jira
 import Control.DeepSeq
 import qualified Data.Map.Strict as M
 import Data.List
-import JiraTypes
-import StrStdTypes
+import Jira.IssueHierarchy
+import Jira.JiraTypes
+import Jira.StrStdTypes
 
 -----------------------------------------------------------------------------
 --

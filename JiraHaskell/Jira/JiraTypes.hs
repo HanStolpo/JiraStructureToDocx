@@ -12,7 +12,7 @@
   , ScopedTypeVariables
   , RecordWildCards
   #-}
-module JiraTypes   ( Attachment(..)
+module Jira.JiraTypes   ( Attachment(..)
                     , Issue(..)
                     , defIssue
                     , IssueLink(..)
@@ -43,7 +43,7 @@ import Control.Monad
 import Data.Default
 import Debug.Trace
 import Control.DeepSeq
-import Utility
+import Jira.Utility
 
 ------------------------------------------
 -- embed templated test case handling

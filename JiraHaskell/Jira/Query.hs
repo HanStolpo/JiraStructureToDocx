@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts, QuasiQuotes, DeriveGeneric, RankNTypes, OverloadedStrings, NamedFieldPuns, RecordWildCards#-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 
-module Query  (query
+module Jira.Query  (query
               ,addLabel
               ,removeLabel
               ,linkIssues
@@ -34,9 +34,9 @@ import Safe
 import Text.RawString.QQ
 {-import Control.Monad.IO.Class-}
 -- local files
-import ProgramOptions
-import JiraTypes
-import IssueHierarchy
+import Jira.ProgramOptions
+import Jira.JiraTypes
+import Jira.IssueHierarchy
 
 
 data QueryRes_ = QueryRes_  { total      :: Int

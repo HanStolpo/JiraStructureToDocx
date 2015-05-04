@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts, RankNTypes #-}
 -- GHC_STATIC_OPTION_i=../src:../testsuite
 
-module StdStrFetch  (fetchStdSrc
+module Jira.StdStrFetch  (fetchStdSrc
                     ,fetchStrSrc
                     ,fetchCycleIdFromName
                     ,fetchStrTestSrc
@@ -27,12 +27,12 @@ import System.FilePath(dropFileName)
 import Text.PrettyPrint.GenericPretty as GP
 import Data.Char(toLower)
 -- local files
-import ProgramOptions
-import JiraTypes     as J
-import ZephyrJson    as Z
-import StrStdTypes
-import ImageStripper
-import JiraStructureToIssueHierarchy
+import Jira.ProgramOptions
+import Jira.JiraTypes     as J
+import Jira.ZephyrJson    as Z
+import Jira.StrStdTypes
+import Jira.ImageStripper
+import Jira.JiraStructureToIssueHierarchy
 
 
 type Query_ a b = forall m. (MonadBaseControl IO m, MonadResource m) =>
