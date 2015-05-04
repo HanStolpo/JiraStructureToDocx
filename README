@@ -1,0 +1,3 @@
+Experimental utilities for generating a MS Word Docx document from a issues in a 
+Jira Structure plug-in structure using Haskell modules http-conduit, pandoc, aeson,
+parsec and some more. It supports basic Jira markup in descriptions and summaries.
