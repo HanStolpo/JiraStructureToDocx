@@ -23,7 +23,9 @@ library
                         Jira.IssueHierarchyToFsDocx, 
                         Jira.Query,
                         Jira.StdStrFetch,
-                        Jira.StdStrGen
+                        Jira.StdStrGen,
+                        Jira.StrStdTypes,
+                        Jira.Utility
 
     build-depends:      PandocReaderJira,
                         PandocWriterHackedDocx,
