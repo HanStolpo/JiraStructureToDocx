@@ -18,9 +18,9 @@ import Network.HTTP.Types.Method
 import Network.HTTP.Types.Header
 import Network.HTTP.Types.Status
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)
+import qualified Data.ByteString.Lazy.Char8 as LB
 import Data.ByteString.Char8 as B (pack)
 import Text.PrettyPrint.GenericPretty
-
 --import GHC.Generics
 import Data.Maybe
 import Data.Aeson
@@ -47,7 +47,8 @@ instance FromJSON QueryRes_ where
     parseJSON (Object v) = do
         _total <- v .: "total"
         _issues <- v .: "issues"
-        return $ QueryRes_ _total (map jsiGetIssue _issues)
+        _iss <- mapM (decodeIssue . LB.pack) _issues
+        return $ QueryRes_ _total _iss
     parseJSON a = typeMismatch "Expecting JSON object for JsIssue" a
 
 makeReq ::  Options -> String -> Request
@@ -150,8 +151,8 @@ instance ToJSON Id_ where toJSON (Id_ s) = object ["id" .= s]
 
 newtype CreateIssue_ = CreateIssue_ (Id_, Id_, Issue) 
 instance ToJSON CreateIssue_ where
-    toJSON (CreateIssue_ (projId, issueType, Issue {..})) 
-                        = object $  ["project" .= projId, "issuetype" .= issueType]
+    toJSON (CreateIssue_ (projId, idForIssueType, Issue {..})) 
+                        = object $  ["project" .= projId, "issuetype" .= idForIssueType]
                         ++ ["summary" .= issueSummary] 
                         ++ fromMaybe [] ((\d->["description" .= d]) <$> issueDescription)
                         ++ ["labels" .= issueLabels]

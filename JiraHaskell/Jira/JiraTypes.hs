@@ -13,24 +13,28 @@
   , RecordWildCards
   #-}
 module Jira.JiraTypes   ( Attachment(..)
-                    , Issue(..)
-                    , defIssue
-                    , IssueLink(..)
-                    , issueLinkDescription
-                    , issueLinkKey
-                    , issueLinkId
-                    , decodeIssue
-                    , decodeIssueResponse
-                    , jiraTypesTestGroup
-                    , JsIssue(..)
-                    ) where
+                        , Issue(..)
+                        , defIssue
+                        , IssueLink(..)
+                        , issueLinkDescription
+                        , issueLinkKey
+                        , issueLinkId
+                        , decodeIssue
+                        , decodeIssueResponse
+                        , jiraTypesTestGroup
+                        ) where
 
 import GHC.Generics
 import Text.PrettyPrint.GenericPretty as GP
+import qualified Text.PrettyPrint as PP
 import qualified Data.Aeson as AS
 import qualified Data.Aeson.Types as AS (typeMismatch)
 import qualified Data.Yaml as YAML
+import qualified Data.Text as T
 import Data.Strings
+import Data.Time.Format
+import Data.Time.LocalTime
+import System.Locale
 import Text.RawString.QQ
 import Test.HUnit
 import Test.Framework
@@ -72,15 +76,14 @@ instance NFData Attachment where
                             `seq` rnf attFileName
                             `seq` ()
 -- proxy type to handle parsing jira response
-newtype JsAttachment = JsAttachment {jsiGetAttachment :: Attachment} deriving (Eq, Show, Read, Generic)
--- Make the attachment JSON deserializable
-instance AS.FromJSON JsAttachment where
-    parseJSON (AS.Object v) = do
-        mimeType <- v AS..: "mimeType"
-        fileName <- v AS..: "filename"
-        content <- v AS..: "content"
-        return $ JsAttachment Attachment {attMimeType = mimeType, attFileName = fileName, attUri = content}
-    parseJSON a = AS.typeMismatch "Expecting JSON object for Attachment" a
+newtype JiraRspAttachment = JiraRspAttachment {fromJiraRspAttachment :: Attachment} 
+instance AS.FromJSON JiraRspAttachment where
+    parseJSON (AS.Object v) = liftM JiraRspAttachment (Attachment 
+                                                    <$> v AS..: "mimeType"   -- attMimeType
+                                                    <*> v AS..: "content"    -- attUri
+                                                    <*> v AS..: "filename"   -- attFileName
+                                                  )
+    parseJSON v = AS.typeMismatch "object" v
 
 
 
@@ -110,110 +113,221 @@ issueLinkId :: IssueLink -> Int
 issueLinkId (Outward _ i _) = i
 issueLinkId (Inward _ i _) = i
 
--- proxy type to handle parsing jira response
-newtype JsIssueLink = JsIssueLink {jsiGetIssueLink :: IssueLink} deriving (Eq, Show, Read, Generic)
+-- decode jira response for issue link as either an inward or an outward link using proxy type
+newtype JiraRspIssueLink = JiraRspIssueLink {fromJiraRspIssueLink :: IssueLink} 
+instance AS.FromJSON JiraRspIssueLink where
+    parseJSON (AS.Object v) = 
+        let mKey = (AS..:"key")
+            mId = (AS..:"id")
+            mInwardIssue = v AS..: "inwardIssue" 
+            mType = v AS..: "type"
+            mInwardLink = Inward  <$> (mType >>= (AS..:"inward")) 
+                                  <*> (read <$> (mInwardIssue >>= mId)) 
+                                  <*> (mInwardIssue >>= mKey)
+            mOutwardIssue = v AS..: "outwardIssue" 
+            mOutwardLink = Outward <$> (mType >>= (AS..:"outward")) 
+                                   <*> (read <$> (mOutwardIssue >>= mId)) 
+                                   <*> (mOutwardIssue >>= mKey)
+        in liftM JiraRspIssueLink (mOutwardLink <|> mInwardLink)
+    parseJSON v = AS.typeMismatch "object" v
 
--- decode link type from jira response
-data IssueLinkType_ = IssueLinkType_{_inwardDesc :: String, _outwardDesc :: String}
-instance AS.FromJSON IssueLinkType_ where
-    parseJSON (AS.Object v) = IssueLinkType_ <$> v AS..: "inward" <*> v AS..: "outward"
-    parseJSON a = AS.typeMismatch "Expecting JSON object for IssueLinkType_" a
 
--- decode link data from jira response
-data IssueLinkData_ = IssueLinkData_{_linkedIssueId :: Int, _linkedIssueKey :: String}
-instance AS.FromJSON IssueLinkData_ where
-    parseJSON (AS.Object v) = IssueLinkData_ <$> fmap read (v AS..: "id") <*> v AS..: "key"
-    parseJSON a = AS.typeMismatch "Expecting JSON object for IssueLinkData_" a
+---------------------------------------------------------------------------
+-- Define a type 
+newtype IssueTime = IssueTime {issueTimeToZonedTime :: ZonedTime}
+-- custom Show instance to allow Issue to be part of Show
+instance Show IssueTime where show  = show . issueTimeToString
+-- custom Read instance to allow Issue to be part of Read
+instance Read IssueTime where 
+    readsPrec _ s = 
+        case readsPrec 0 s of
+            [] -> []
+            (s', rs):_ -> case parseIssueTime s' of
+                Nothing -> []
+                Just t -> [(t, rs)]
+-- custom Eq instance to allow Issue to be part of Eq
+instance Eq IssueTime where (IssueTime l) == (IssueTime r) = zonedTimeToUTC l == zonedTimeToUTC r
+-- auto derive NFData instance from ZonedTime to allow Issue to be part of NFData
+instance NFData IssueTime
+-- Out instance for generic pretty
+instance Out IssueTime where
+    doc t = PP.text ("(fromJust . parseIssueTime $ " ++ show t ++ ")")
+    docPrec _ = doc
 
--- decode an inward link from jira response
-_makeInwardLink :: IssueLinkData_ -> IssueLinkType_ -> IssueLink
-_makeInwardLink d t = Inward (_inwardDesc t) (_linkedIssueId d) (_linkedIssueKey d)
+-- The format specifier that defines how times are shown or read
+issueTimeFmt :: String
+issueTimeFmt = iso8601DateFormat (Just "%H:%M:%S%Q%z")
+-- The local that defines how times are shown or read
+issueTimeLocale :: TimeLocale
+issueTimeLocale = defaultTimeLocale
 
--- decode an outward link from jira response
-_makeOutwardLink :: IssueLinkData_ -> IssueLinkType_ -> IssueLink
-_makeOutwardLink d t = Outward (_outwardDesc t) (_linkedIssueId d) (_linkedIssueKey d)
+-- Converts an IssueTime to a String
+issueTimeToString :: IssueTime -> String
+issueTimeToString = formatTime issueTimeLocale issueTimeFmt . issueTimeToZonedTime
 
--- decode jira response for issue link as either an inward or an outward link
-instance AS.FromJSON JsIssueLink where
-    parseJSON (AS.Object v) = JsIssueLink <$> (_makeInwardLink <$> v AS..: "inwardIssue" <*> v AS..: "type") 
-                            <|> 
-                             JsIssueLink <$> (_makeOutwardLink <$> v AS..: "outwardIssue" <*> v AS..: "type")
-    parseJSON a = AS.typeMismatch "Expecting JSON object for  IssueLink" a
+-- Converts a String to an IssueTime possibly failing
+parseIssueTime :: String -> Maybe IssueTime
+parseIssueTime = fmap IssueTime . parseTime issueTimeLocale issueTimeFmt
+
+-- Parse IssueTime from JSON or YAML
+instance AS.FromJSON IssueTime where
+    parseJSON v@(AS.String s) = case parseIssueTime (T.unpack s) of
+                                  Just t -> return t
+                                  Nothing -> AS.typeMismatch "expecting string representing date in SQL / ISO8601 format " v
+    parseJSON v = AS.typeMismatch "object" v
+
+-- Convert IssueTime to JSON or YAML
+instance AS.ToJSON IssueTime where
+    toJSON  = AS.String . T.pack . issueTimeToString
         
 
 ---------------------------------------------------------------------------
--- Class to represent the JASON of an issue
-
-data Issue = Issue
-    {
-        issueId             :: Int,          -- The issue identifier
-        issueKey            :: String,       -- The issue key
-        issueSummary        :: String,       -- The summary field 
-        issueDescription    :: Maybe String, -- The optional description field
-        issueStatus         :: String,
-        issueAttachments    :: [Attachment], -- The list of optional attachments
-        issueLinks          :: [IssueLink],
-        issueLabels         :: [String],
-        issueStoryPoints    :: Maybe Int,
-        issueSources        :: Maybe String
-    } 
-    deriving (Eq, Show, Read, Generic)
+-- 
+data Issue = Issue 
+              { issueId               :: Int                -- the integer ID for he issue
+              , issueKey              :: String             -- the string key for the issue
+              , issueType             :: String             -- type of the isse, new if missing 'Story'
+              , issueSummary          :: String             -- the issue's summary
+              , issueDescription      :: Maybe String       -- the issue's description if it was present
+              , issueCreateDate       :: Maybe IssueTime    -- the create date, new so Maybe (technically all issues should have this value)
+              , issueStatus           :: String             -- the status of the issue
+              , issueResolvedDate     :: Maybe IssueTime    -- the date the issue was last resovled if any
+              , issueAttachments      :: [Attachment]       -- list of possibly associated attachements
+              , issueLinks            :: [IssueLink]        -- list of possible links to other issues (descries the link)
+              , issueLabels           :: [String]           -- the list of labels associated with this issue
+              , issueReporter         :: Maybe String       -- the reporter, new so Maybe (technically all issues should have this value)
+              , issueAssignee         :: Maybe String       -- the issue's assignee if any
+              , issueStoryPoints      :: Maybe Int          -- the story points associated with the issue if any
+              , issueSources          :: Maybe String       -- the sources field associated with the story if it has any
+              } deriving (Eq, Show, Read, Generic)
 instance Out Issue
-instance AS.ToJSON Issue 
-instance AS.FromJSON Issue 
 instance Default Issue where
     def = defIssue
 
 defIssue :: Issue
-defIssue = Issue 0 "" "" Nothing "" [] [] [] Nothing Nothing
+defIssue = Issue { issueId              = def 
+                 , issueKey             = def 
+                 , issueType            = def 
+                 , issueSummary         = def 
+                 , issueDescription     = def 
+                 , issueCreateDate      = def 
+                 , issueStatus          = def 
+                 , issueResolvedDate    = def 
+                 , issueAttachments     = def 
+                 , issueLinks           = def 
+                 , issueLabels          = def 
+                 , issueReporter        = def 
+                 , issueAssignee        = def 
+                 , issueStoryPoints     = def 
+                 , issueSources         = def 
+                 } 
 
 instance NFData Issue where
-    rnf Issue { .. } =  rnf issueId 
-                `seq` rnf issueKey 
-                `seq` rnf issueSummary
-                `seq` rnf issueDescription
-                `seq` rnf issueStatus
-                `seq` rnf issueAttachments
-                `seq` rnf issueLinks
-                `seq` rnf issueLabels
-                `seq` rnf issueStoryPoints
-                `seq` rnf issueSources
-                `seq` ()
+    rnf Issue { .. } =    rnf issueId 
+                    `seq` rnf issueKey
+                    `seq` rnf issueType
+                    `seq` rnf issueSummary
+                    `seq` rnf issueDescription
+                    `seq` rnf issueCreateDate
+                    `seq` rnf issueStatus
+                    `seq` rnf issueResolvedDate
+                    `seq` rnf issueAttachments
+                    `seq` rnf issueLinks
+                    `seq` rnf issueLabels
+                    `seq` rnf issueReporter
+                    `seq` rnf issueAssignee
+                    `seq` rnf issueStoryPoints
+                    `seq` rnf issueSources
+                    `seq` ()
 
--- proxy type for decoding jira response
-newtype JsIssue = JsIssue {jsiGetIssue :: Issue} deriving (Eq, Show, Read, Generic)
+-- manually define to and from JSON instances for backwards compatability when adding new fields
+instance AS.FromJSON Issue where
+    parseJSON (AS.Object v) = 
+              Issue <$> v AS..:  "issueId"
+                    <*> v AS..:  "issueKey"
+                    <*> v AS..:? "issueType" AS..!= "Story" -- key is allowed to be missing "Story" then
+                    <*> v AS..:  "issueSummary"
+                    <*> v AS..:? "issueDescription" -- key is allowed to be missing "Nothing" then
+                    <*> v AS..:? "issueCreateDate"  -- key is allowed to be missing "Nothing" then
+                    <*> v AS..:  "issueStatus"
+                    <*> v AS..:? "issueResolvedDate"  -- key is allowed to be missin "Nothing" then
+                    <*> v AS..:? "issueAttachments" AS..!= [] -- key is allowed to be missing "[]" then
+                    <*> v AS..:? "issueLinks" AS..!= []       -- key is allowed to be missing "[]" then
+                    <*> v AS..:? "issueLabels" AS..!= []      -- key is allowed to be missing "[]" then
+                    <*> v AS..:? "issueReporter"     -- key is allowed to be missing "Nothing" then
+                    <*> v AS..:? "issueAssignee"     -- key is allowed to be missing "Nothing" then
+                    <*> v AS..:? "issueStoryPoints"  -- key is allowed to be missing "Nothing" then 
+                    <*> v AS..:? "issueSources"      -- key is allowed to be missing "Nothing" then
+    parseJSON a = AS.typeMismatch "Expecting JSON object for JiraIssue" a
 
--- Specify JSON parser for JsIssue 
-instance AS.FromJSON JsIssue where
+
+instance AS.ToJSON Issue where
+    toJSON Issue{..} = AS.object 
+                        [ "issueId" AS..= issueId
+                        , "issueKey" AS..= issueKey
+                        , "issueType" AS..= issueType
+                        , "issueSummary" AS..= issueSummary
+                        , "issueDescription" AS..= issueDescription
+                        , "issueCreateDate" AS..= issueCreateDate
+                        , "issueStatus" AS..= issueStatus
+                        , "issueResolveDate" AS..= issueResolvedDate
+                        , "issueAttachments" AS..= issueAttachments
+                        , "issueLinks" AS..= issueLinks
+                        , "issueLabels" AS..= issueLabels
+                        , "issueReporter" AS..= issueReporter
+                        , "issueAssignee" AS..= issueAssignee
+                        , "issueStoryPoints" AS..= issueStoryPoints
+                        , "issueSources" AS..= issueSources
+                        ]
+
+-- Parse Jira jason response using a proxy type
+newtype JiraRspIssue = JiraRspIssue {fromJiraRspIssue :: Issue} deriving (Show, Read, Generic)
+instance AS.FromJSON JiraRspIssue where
     parseJSON (AS.Object v) = do
-        ident <- read <$> v AS..: "id"
-        key <- v AS..: "key"
-        fields <- v AS..: "fields"
-        summary <- fields AS..: "summary"
-        description <- fields AS..:? "description"
-        statusObj <- fields AS..: "status"
-        status <- statusObj AS..: "name"
-        attachments <- fields AS..:? "attachment" AS..!= []
-        issueLinks <- fields AS..:? "issuelinks" AS..!= []
-        labels :: [String] <- fields AS..:? "labels" AS..!= []
-        storyPoints :: Maybe Int <- fields AS..:? "customfield_10003" AS..!= Nothing
-        sources :: Maybe String <- fields AS..:? "customfield_10900" AS..!= Nothing
-        return $ JsIssue (Issue ident key summary description status (map jsiGetAttachment attachments) (map jsiGetIssueLink issueLinks) labels storyPoints sources)
-    parseJSON a = AS.typeMismatch "Expecting JSON object for JsIssue" a
+        fs <- v AS..: "fields"
+                    -- issueId
+        i <- Issue <$> (read <$> v AS..: "id")
+                    -- issueKey
+                    <*> v AS..: "key"
+                    -- issueType
+                    <*> (fs AS..: "issuetype" >>= (AS..: "name"))
+                    -- issueSummary
+                    <*> fs AS..: "summary"
+                    -- issueDescription
+                    <*> fs AS..:? "description" 
+                    -- issueCreateDate
+                    <*> fs AS..:? "created"
+                    -- issueStatus
+                    <*> (fs AS..: "status" >>= (AS..: "name"))
+                    -- issueResolvedDate
+                    <*> fs AS..:? "resolutiondate"
+                    -- issueAttachments
+                    <*> ((map fromJiraRspAttachment) <$> fs AS..:? "attachment" AS..!= [])
+                    -- issueLinks
+                    <*> ((map fromJiraRspIssueLink) <$> fs AS..:? "issuelinks" AS..!= [])
+                    -- issueLabels
+                    <*> fs AS..:? "labels" AS..!= []
+                    -- issueReporter
+                    <*> ((fs AS..: "reporter" >>= (AS..:"name")) <|> return Nothing)
+                    -- issueAssignee
+                    <*> ((fs AS..: "assignee" >>= (AS..:"name")) <|> return Nothing)
+                    -- issueStoryPoints
+                    <*> fs AS..:? "customfield_10003" AS..!= Nothing 
+                    -- issueSources
+                    <*> fs AS..:? "customfield_10900" AS..!= Nothing 
+        return $ JiraRspIssue i 
+    parseJSON a = AS.typeMismatch "object" a
 
 decodeIssue :: Monad m => ByteString -> m Issue
-decodeIssue = return . jsiGetIssue <=< decodeJsIssue
+decodeIssue = return . fromJiraRspIssue <=< decodeJsIssue
 
-decodeJsIssue :: Monad m => ByteString -> m JsIssue
+decodeJsIssue :: Monad m => ByteString -> m JiraRspIssue
 decodeJsIssue s = case AS.eitherDecode s of
                         Left e -> fail $ "Error decoding JASON for issue : " ++ e ++ "\n" ++ unpack s
                         Right f -> return f
 
 decodeIssueResponse :: ByteString  -> Either String Issue
-decodeIssueResponse = fmap jsiGetIssue . decodeJsIssue
-
--- decodeJsIssueResponse :: ByteString  -> Either String JsIssue
--- decodeJsIssueResponse = AS.eitherDecode 
+decodeIssueResponse = fmap fromJiraRspIssue . decodeJsIssue
 
 case_decodeIssueResponse :: Assertion
 case_decodeIssueResponse = Right expected @=? decodeIssueResponse s
@@ -419,5 +533,5 @@ case_deserializeIssue = Right i @=? AS.eitherDecode s
 -------------------------------------------------
 -- Debug main
 ------------------------------------------------
--- main :: IO ()
--- main = defaultMain [jiraTypesTestGroup]
+main :: IO ()
+main = defaultMain [jiraTypesTestGroup]

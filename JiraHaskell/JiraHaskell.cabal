@@ -40,6 +40,7 @@ library
                         HUnit == 1.2.5.2,
                         pandoc == 1.12.4.2,
                         pandoc-types == 1.12.4,
+                        pretty == 1.1.1.1,
                         GenericPretty, 
                         data-default == 0.5.3,
                         yaml,
@@ -63,4 +64,6 @@ library
                         text == 1.1.0.0,
                         attoparsec == 0.10.4.0,
                         transformers == 0.3.0.0,
+                        time == 1.4.2,
+                        old-locale == 1.0.0.6,
                         deepseq
