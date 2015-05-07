@@ -181,7 +181,7 @@ forestToHierarchyIssue :: (MonadBaseControl IO m, MonadResource m) =>
                           -> Int
                           -> m IssueHierarchy
 forestToHierarchyIssue !manager !usrn !pwd !baseUrl !forest !i = do -- withManager $ \manager -> do
-    let url = baseUrl ++ show i ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
+    let url = baseUrl ++ show i ++ "/?fields="++ jiraIssueResponseFieldsSpec
         req' =  applyBasicAuth  usrn pwd  (fromJust $ parseUrl url)
         req = req' {responseTimeout = Just 60000000}
     liftIO (putStrLn ("fetching " ++ show i))

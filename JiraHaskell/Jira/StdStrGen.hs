@@ -30,7 +30,7 @@ import Jira.IssueHierarchy
 import Pandoc.Reader.Jira
 import Pandoc.Writer.HackedDocx
 
-import Debug.Trace
+-- import Debug.Trace
 
 _simpleTable :: [Blocks] -> [[Blocks]] -> Blocks
 _simpleTable headers = table mempty (map (const defaults) headers) headers

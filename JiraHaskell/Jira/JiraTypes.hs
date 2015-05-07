@@ -22,13 +22,15 @@ module Jira.JiraTypes   ( Attachment(..)
                         , decodeIssue
                         , decodeIssueResponse
                         , jiraTypesTestGroup
+                        , parseIssueFromJiraResponseObject
+                        , jiraIssueResponseFieldsSpec
                         ) where
 
 import GHC.Generics
 import Text.PrettyPrint.GenericPretty as GP
 import qualified Text.PrettyPrint as PP
 import qualified Data.Aeson as AS
-import qualified Data.Aeson.Types as AS (typeMismatch)
+import qualified Data.Aeson.Types as AS (typeMismatch, Parser)
 import qualified Data.Yaml as YAML
 import qualified Data.Text as T
 import Data.Strings
@@ -146,7 +148,7 @@ instance Read IssueTime where
                 Nothing -> []
                 Just t -> [(t, rs)]
 -- custom Eq instance to allow Issue to be part of Eq
-instance Eq IssueTime where (IssueTime l) == (IssueTime r) = zonedTimeToUTC l == zonedTimeToUTC r
+instance Eq IssueTime where (IssueTime _l) == (IssueTime _r) = zonedTimeToUTC _l == zonedTimeToUTC _r
 -- auto derive NFData instance from ZonedTime to allow Issue to be part of NFData
 instance NFData IssueTime
 -- Out instance for generic pretty
@@ -183,6 +185,7 @@ instance AS.ToJSON IssueTime where
 
 ---------------------------------------------------------------------------
 -- 
+
 data Issue = Issue 
               { issueId               :: Int                -- the integer ID for he issue
               , issueKey              :: String             -- the string key for the issue
@@ -280,6 +283,21 @@ instance AS.ToJSON Issue where
                         , "issueSources" AS..= issueSources
                         ]
 
+-- The specifications of the required fields to be returned when quering jira for an issue
+jiraIssueResponseFieldsSpec :: String
+jiraIssueResponseFieldsSpec =   "issuetype," ++
+                                "summary," ++
+                                "description," ++
+                                "created," ++ 
+                                "status," ++
+                                "resolutiondate," ++ 
+                                "labels," ++
+                                "issuelinks," ++ 
+                                "attachment," ++
+                                "reporter," ++
+                                "assignee," ++
+                                "customfield_10003," ++    -- story points field
+                                "customfield_10900"        -- sources field 
 -- Parse Jira jason response using a proxy type
 newtype JiraRspIssue = JiraRspIssue {fromJiraRspIssue :: Issue} deriving (Show, Read, Generic)
 instance AS.FromJSON JiraRspIssue where
@@ -317,6 +335,9 @@ instance AS.FromJSON JiraRspIssue where
                     <*> fs AS..:? "customfield_10900" AS..!= Nothing 
         return $ JiraRspIssue i 
     parseJSON a = AS.typeMismatch "object" a
+
+parseIssueFromJiraResponseObject :: AS.Value -> AS.Parser Issue
+parseIssueFromJiraResponseObject v = fromJiraRspIssue <$> AS.parseJSON v
 
 decodeIssue :: Monad m => ByteString -> m Issue
 decodeIssue = return . fromJiraRspIssue <=< decodeJsIssue
@@ -533,5 +554,5 @@ case_deserializeIssue = Right i @=? AS.eitherDecode s
 -------------------------------------------------
 -- Debug main
 ------------------------------------------------
-main :: IO ()
-main = defaultMain [jiraTypesTestGroup]
+-- main :: IO ()
+-- main = defaultMain [jiraTypesTestGroup]

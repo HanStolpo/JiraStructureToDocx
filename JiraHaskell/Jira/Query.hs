@@ -47,7 +47,7 @@ instance FromJSON QueryRes_ where
     parseJSON (Object v) = do
         _total <- v .: "total"
         _issues <- v .: "issues"
-        _iss <- mapM (decodeIssue . LB.pack) _issues
+        _iss <- mapM parseIssueFromJiraResponseObject _issues
         return $ QueryRes_ _total _iss
     parseJSON a = typeMismatch "Expecting JSON object for JsIssue" a
 
@@ -81,14 +81,14 @@ query opts = case optQueryString opts of
                                         totalFetched = length is + fetched
                                         in if totalFetched >= total qr then return is  else (is++) <$> _query totalFetched manager
                 where 
-                    url = "/rest/api/2/search?jql=" ++ qs ++ "&startAt=" ++ show fetched ++ "&fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003" 
+                    url = "/rest/api/2/search?jql=" ++ qs ++ "&startAt=" ++ show fetched ++ "&fields=" ++ jiraIssueResponseFieldsSpec
                     req = makeReq opts url
                     _decode :: ByteString -> Either String QueryRes_
                     _decode = eitherDecode
 
 fetchIssueById :: Options -> Int -> IO Issue
 fetchIssueById opts iid = withSocketsDo $ withManager $ \manager -> do
-    let url =  "/rest/api/latest/issue/" ++ show iid ++ "/?fields=summary,description,attachment,issuelinks,status,labels,customfield_10900,customfield_10003"
+    let url =  "/rest/api/latest/issue/" ++ show iid ++ "/?fields=" ++ jiraIssueResponseFieldsSpec
         req = makeReq opts url
         err e = error $ "fetchIssueById - error fetching issue id = " ++ show iid ++ " with options = " ++ pretty opts ++ " reason = " ++ e
     either err id . decodeIssueResponse . responseBody <$> httpLbs req manager
