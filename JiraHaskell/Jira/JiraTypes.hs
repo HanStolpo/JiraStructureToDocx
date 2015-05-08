@@ -19,6 +19,7 @@ module Jira.JiraTypes   ( Attachment(..)
                         , issueLinkDescription
                         , issueLinkKey
                         , issueLinkId
+                        , IssueTime(..)
                         , decodeIssue
                         , decodeIssueResponse
                         , jiraTypesTestGroup
@@ -149,6 +150,8 @@ instance Read IssueTime where
                 Just t -> [(t, rs)]
 -- custom Eq instance to allow Issue to be part of Eq
 instance Eq IssueTime where (IssueTime _l) == (IssueTime _r) = zonedTimeToUTC _l == zonedTimeToUTC _r
+-- ordering
+instance Ord IssueTime where compare (IssueTime _l) (IssueTime _r) = compare (zonedTimeToUTC _l) (zonedTimeToUTC _r)
 -- auto derive NFData instance from ZonedTime to allow Issue to be part of NFData
 instance NFData IssueTime
 -- Out instance for generic pretty
