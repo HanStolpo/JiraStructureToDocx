@@ -3,6 +3,8 @@
 module Jira.Utility ( prettyJson
                     , unflattenPandoc
                     , unflattenHierarchy
+                    , correctHdrLevels
+                    , correctHdrLevels'
                     , jiraUtilityTestGroup
                     ) where
 
@@ -155,6 +157,24 @@ h4. 3dH4
 |]
         
 
+-- Take a tree representing the pandoc document with the tree rooted with 
+-- value Null and parents of value Header and ensure that the header levels
+-- start at a certain value and are consecutive
+correctHdrLevels' :: Int            -- The lowest header level
+                  -> Tree Block     -- The input tree reprsenting the pandoc hierarchy
+                  -> Tree Block
+correctHdrLevels' topLvl t = go topLvl t
+    where
+        go l n@(Node {rootLabel = Null, subForest = sf}) = n{subForest = map (go l) sf}
+        go l Node {rootLabel = Header _ a b, subForest = sf} = Node {rootLabel = Header l a b, subForest = map (go (l+1)) sf}
+        go _ n = n
+
+-- Correct the header levels in a pandoc document ensuring 
+-- that header levels start at a certain value and are consecutive
+correctHdrLevels :: Int         -- The lowest header level
+                 -> [Block]     -- The pandoc document
+                 -> [Block]
+correctHdrLevels topLvl = flatten . correctHdrLevels' topLvl . unflattenPandoc
 
 
 -- Export all the test cases to be run externally
