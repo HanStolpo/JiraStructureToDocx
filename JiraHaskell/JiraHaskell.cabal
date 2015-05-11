@@ -25,6 +25,7 @@ library
                         Jira.StdStrFetch,
                         Jira.StdStrGen,
                         Jira.StrStdTypes,
+                        Jira.BugReport,
                         Jira.Utility
 
     build-depends:      PandocReaderJira,

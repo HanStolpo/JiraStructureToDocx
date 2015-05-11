@@ -1,14 +1,17 @@
-{-# LANGUAGE OverloadedStrings, TupleSections, QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings, TupleSections, QuasiQuotes, FlexibleContexts #-}
   
 module Jira.Utility ( prettyJson
                     , unflattenPandoc
                     , unflattenHierarchy
                     , correctHdrLevels
                     , correctHdrLevels'
+                    , fetchImagesLocal
+                    , fetchImageLocal
                     , jiraUtilityTestGroup
                     ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)     -- only import string instances for overloaded strings
+import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as C 
 import qualified Data.Char as C
 import Data.ByteString.Lazy.Builder
@@ -20,6 +23,15 @@ import Test.Framework
 import Test.Framework.Providers.HUnit
 import Text.Pandoc.Definition
 import Text.RawString.QQ
+import Control.Monad.IO.Class  
+import Control.Monad
+import Data.Conduit.Binary (sinkFile)
+import qualified Data.Conduit as C
+import Network.HTTP.Conduit
+import Network.HTTP.Types.Status
+import Control.Monad.Trans.Resource
+import System.Directory
+import System.FilePath
 --import Data.Default
 -- local
 import Pandoc.Reader.Jira
@@ -176,6 +188,36 @@ correctHdrLevels :: Int         -- The lowest header level
                  -> [Block]
 correctHdrLevels topLvl = flatten . correctHdrLevels' topLvl . unflattenPandoc
 
+
+-- Call fetchImageLocal for several (URI, Local File Path) pairs
+fetchImagesLocal :: (Monad m, MonadIO m, MonadBaseControl IO m, MonadResource m) => 
+                     Manager                -- the manager through which the reques is done
+                  -> B.ByteString           -- the user name for authenication
+                  -> B.ByteString           -- the password for authentication
+                  -> [(String, FilePath)]   -- the list of (URI, Local Path)
+                  -> m ()
+fetchImagesLocal manager usrn pwd = mapM_ (uncurry $ fetchImageLocal manager usrn pwd)
+
+fetchImageLocal :: (MonadBaseControl IO m, MonadResource m) =>
+               Manager       -- the manager through which the reques is done
+            -> B.ByteString  -- the user name for authenication
+            -> B.ByteString  -- the password for authentication
+            -> String        -- the URI
+            -> FilePath      -- the local path
+            -> m ()
+fetchImageLocal manager usrn pwd uri ph = do
+    when (not . isValid $ ph) (fail ("fetchImageLocal - Invalid local path for image " ++ ph)) 
+    liftIO $ createDirectoryIfMissing True (takeDirectory ph)
+    case parseUrl uri of
+        Nothing -> liftIO . putStrLn . ("fetchImageLocal - failed to parse URI so skipping it (URI, LOCAL_PATH)" ++) . show $ (uri, ph)
+        Just uri' -> do
+            let req = (applyBasicAuth usrn pwd uri') {checkStatus = \_ _ _ -> Nothing, responseTimeout = Just 60000000}
+            res <- http req manager
+            if responseStatus res == ok200 
+                then do
+                    responseBody res C.$$+- sinkFile ph
+                else 
+                    liftIO . putStrLn . ("Failed to retrieve image (URI, LOCAL_PATH)" ++) . show $ (uri, ph)
 
 -- Export all the test cases to be run externally
 jiraUtilityTestGroup ::  Test.Framework.Test

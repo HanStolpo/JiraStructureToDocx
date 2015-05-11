@@ -8,6 +8,7 @@ module Jira.ProgramOptions   ( Operation(..)
                         , processCmdArgs
                         , validatePwd
                         , validateUrs
+                        , validate
                         ) where
  
 import System.Console.CmdArgs.Implicit
@@ -26,6 +27,8 @@ data Operation =  FetchOnly         --- Fetch the structure only and don't gener
                 | GenDocStr         --- Generate the STR document
                 | GenDocStd         --- Generate the STD document
                 | GenFs             --- Generate the FS traceability
+                | GenBugReport      --- Generate a bug report 
+                | GenDocX           --- Read in pandoc markdown file and generate docx file using the custom writer
                 deriving (Show, Data, Typeable, Generic)
 -- Make Operation pretty printable
 instance Out Operation
@@ -44,6 +47,8 @@ data Options = Options  { optOperation          :: Operation
                         , optQueryString        :: Maybe String
                         , optStrStdIssuesFile   :: String
                         , optUseLinkedIssueAsId :: Maybe String
+                        , optFileInput          :: Maybe String
+                        , optFileOutput         :: Maybe String
                         } deriving (Show, Data, Typeable, Generic)
 -- Make Options pretty printable
 instance Out Options
@@ -63,16 +68,20 @@ optionsDefault = Options { optOperation             = FetchOnly
                          , optQueryString           = Nothing
                          , optStrStdIssuesFile      = "StrStdIssues.txt"
                          , optUseLinkedIssueAsId    = Nothing
+                         , optFileInput             = Nothing
+                         , optFileOutput            = Nothing
                          }
 
 options :: Options
-options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= name "fetch-only"    &= help "Only fetch the structure hierarchy from JIRA"
-                                                , GenDocOnly    &= explicit &= name "gen-doc-only"  &= help "Only generate the document given a structure hierarchy previously fetched from JIRA"
-                                                , FetchStr      &= explicit &= name "fetch-str"     &= help "Fetch the data related to the STR"
-                                                , FetchStd      &= explicit &= name "fetch-std"     &= help "Fetch the data related to the STD"
-                                                , GenDocStr     &= explicit &= name "gen-doc-str"   &= help "Generate the STR given the data previously fetched"
-                                                , GenDocStd     &= explicit &= name "gen-doc-std"   &= help "Generate the STD given the data previously fetched"
-                                                , GenFs         &= explicit &= name "gen-doc-fs"    &= help "Generate the FS traceability to the SSS"
+options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= name "fetch-only"        &= help "Only fetch the structure hierarchy from JIRA"
+                                                , GenDocOnly    &= explicit &= name "gen-doc-only"      &= help "Only generate the document given a structure hierarchy previously fetched from JIRA"
+                                                , FetchStr      &= explicit &= name "fetch-str"         &= help "Fetch the data related to the STR"
+                                                , FetchStd      &= explicit &= name "fetch-std"         &= help "Fetch the data related to the STD"
+                                                , GenDocStr     &= explicit &= name "gen-doc-str"       &= help "Generate the STR given the data previously fetched"
+                                                , GenDocStd     &= explicit &= name "gen-doc-std"       &= help "Generate the STD given the data previously fetched"
+                                                , GenFs         &= explicit &= name "gen-doc-fs"        &= help "Generate the FS traceability to the SSS"
+                                                , GenBugReport  &= explicit &= name "gen-bug-report"    &= help "Generate a bug report based on a query string as a Pandoc Markdown text document (Uses parameters query and )."
+                                                , GenDocX       &= explicit &= name "gen-docx"          &= help "Read in any Pandoc Markdown document and generate a Docx document using the custom writer."
                                                 ]
                   , optUsr                  = def  &= explicit &= name "usr"                        &= help "user name"
                   , optPwd                  = def  &= explicit &= name "pwd"                        &= help "password"
@@ -87,6 +96,8 @@ options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= n
                   , optQueryString          = def  &= explicit &= name "query"                      &= help "optional jira query to filter document structure generation"
                   , optStrStdIssuesFile     = defS &= explicit &= name "str-std-issues-file"        &= help "the set of issue linked to test that are being tested (generated when STD is generated used by STR)" &= opt defS 
                   , optUseLinkedIssueAsId   = def  &= explicit &= name "use-linked-issue-as-id"     &= help "use ID of the issue linked through the named relationship for the issue ID instead of its actual ID" 
+                  , optFileInput            = def  &= explicit &= name "input"                      &= help "File to be used as input to the operation." 
+                  , optFileOutput           = def  &= explicit &= name "output"                     &= help "File to be used as output for the operation." 
                   } &= program "JiraStructureToDocX"
             where
                 defH = optHierarchyFile optionsDefault
@@ -130,6 +141,22 @@ validate opts@(Options {optOperation =  GenFs, ..}) = do
             Nothing -> fail "For FS expecting a hierarchy file contianing the SSS"
     pd <- canonicalizePath optDocxFile
     return opts {optHierarchyFile = ph, optDocxFile = pd}
+
+validate opts@(Options {optOperation =  GenBugReport, ..}) = do
+    url <- validateUrl optBaseUrl
+    usr <- validateUrs optUsr
+    pwd <- validatePwd optPwd
+    return opts { optBaseUrl = Just url
+                , optUsr = Just usr
+                , optPwd = Just pwd
+                , optQueryString = Just $ fromJustNote "query string is required" optQueryString
+                , optFileOutput = Just $ fromJustNote "output is required" optFileOutput 
+                }
+
+validate opts@(Options {optOperation =  GenDocX, ..}) = do
+    let input =  fromJustNote "input is required" $ optFileInput
+    doesFileExist input >>= flip when (fail "input file does not exist")
+    return opts {optFileOutput = Just $ fromJustNote "output is required" optFileOutput, optFileInput = Just input}
 
 _validateFetchStrStd :: Bool -> Options -> IO Options
 _validateFetchStrStd isStr opts@(Options{..}) = do

@@ -25,6 +25,7 @@ module Jira.JiraTypes   ( Attachment(..)
                         , jiraTypesTestGroup
                         , parseIssueFromJiraResponseObject
                         , jiraIssueResponseFieldsSpec
+                        , issueImageLocalizeInfo
                         ) where
 
 import GHC.Generics
@@ -37,6 +38,9 @@ import qualified Data.Text as T
 import Data.Strings
 import Data.Time.Format
 import Data.Time.LocalTime
+import Data.List
+import Data.Maybe
+import qualified Data.Char as C
 import System.Locale
 import Text.RawString.QQ
 import Test.HUnit
@@ -44,6 +48,7 @@ import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.Framework.TH
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)     -- only import string instances for overloaded strings
+import System.FilePath
 --import qualified Data.ByteString as BS
 import Control.Applicative((<$>), (<*>), (<|>))
 import Control.Monad
@@ -51,6 +56,7 @@ import Data.Default
 import Debug.Trace
 import Control.DeepSeq
 import Jira.Utility
+import Pandoc.Reader.Jira
 
 ------------------------------------------
 -- embed templated test case handling
@@ -554,6 +560,22 @@ case_deserializeIssue = Right i @=? AS.eitherDecode s
                 ]
                 }
             |]
+
+-- Construct localization information issues
+issueImageLocalizeInfo :: String    -- local path prefix (where images will go)
+                       -> [Issue]   -- list of issues
+                       -> [(String, String, ImageLink)] -- list of (original URI in the description, the corrected URI where to fetch it from, the localized image link) 
+issueImageLocalizeInfo pfx = foldr f []
+    where
+        f Issue{issueKey = k, issueDescription = d, issueAttachments = as} ls = foldr (g as k) ls . imagesFromDescription . fromMaybe "" $ d
+        g as k il@ImageLink{..} ls 
+            | isPrefixOf "http" imgLink = (imgLink, imgLink, il'):ls
+            | otherwise = case find ((imgLink==) . map C.toLower . attFileName) as of
+                                        Just a -> (imgLink, attUri a, il'):ls
+                                        Nothing -> (imgLink, imgLink, il'):ls
+            where
+                il' = il{imgLink = normalise . combine pfx . (k ++) . ("-" ++) . takeFileName $ imgLink}
+
 -------------------------------------------------
 -- Debug main
 ------------------------------------------------
