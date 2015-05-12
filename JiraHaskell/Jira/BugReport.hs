@@ -1,8 +1,4 @@
-{-# LANGUAGE ConstraintKinds
-  , FlexibleContexts
-  , QuasiQuotes
-  , OverloadedStrings
-  , DeriveGeneric
+{-# LANGUAGE OverloadedStrings
   , RecordWildCards
   #-}
 
@@ -21,11 +17,14 @@ import Data.Either
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Data.Time.Clock
+import Data.Time.Format
 import Text.Pandoc
 import Text.Pandoc.Builder
 import Text.CSV
 import System.FilePath
 import System.Directory
+import System.Locale
 import Network.HTTP.Conduit
 import Network (withSocketsDo)
 -- local
@@ -93,8 +92,8 @@ invalidBugToRecord :: (Issue, Either String BugInfo) -> Record
 invalidBugToRecord (i, Left e) = [issueKey i, issueSummary i, maybe "" show . issueAssignee $ i, maybe "" show . issueReporter $ i, e]
 invalidBugToRecord (_, Right _) = error "invalidBugToRecord"
 
-makeReport :: [BugInfo] -> [Block]
-makeReport bs = toList (outStandingIssue <> resolvedIssue <> issueDetails)
+makeReport :: UTCTime -> [BugInfo] -> [Block]
+makeReport ct bs = toList (overView <> outStandingIssue <> resolvedIssue <> issueDetails)
     where
         outStandingIssue =  header 1 (str "Summary of Outstanding Issues") <> simpleTable hdgO (map oRow . sortBy (compare `on` Down . createdDate) . filter (not . isResolved) $ bs)
         resolvedIssue = header 1 (str "Summary of Resolved Issues") <> simpleTable hdgR (map rRow . sortBy (compare `on` Down . resolvedDate) . filter isResolved $ bs)
@@ -111,16 +110,24 @@ makeReport bs = toList (outStandingIssue <> resolvedIssue <> issueDetails)
                                                     ]
         toDt :: BugInfo -> Blocks 
         toDt (BugInfo (i, _, _, _)) = header 2 (text (issueKey i ++ " - " ++ issueSummary i)) <> (fromList . correctHdrLevels 3 . parseDescription 0 . maybe "" id . issueDescription $ i)
+        overView = header 1 (str "Overview") 
+                <> (para . text $ 
+                "This report provides a summary of issues that have not been resolved yet in section 2 (Summary of Outstanding Issues) and " ++
+                "a summary of issues that have been resolved in section 3 (Summary of Resolved Issues). The summary sections do not list the " ++
+                "detailed descriptions of the issues, those are provided in section 4 (Issue Details). ") 
+                <> (para . str . ("This report was generated on " ++) $ formatTime defaultTimeLocale (iso8601DateFormat Nothing) ct)
+
 
 generateBugReport :: Options -> IO ()
 generateBugReport opt' = do
     opt <- validate opt'
     bugs <- Q.query opt
+    ct <- getCurrentTime
     let
         output = fromJust . optFileOutput $ opt
         imld = issueImageLocalizeInfo (dropExtension output ++ "_images") bugs
         imgs = map (\(_, uri, ph) -> (uri, imgLink ph)) imld
-        mapImgRep = M.fromList . map (\(o, _, ph) -> (o,ph)) $ imld
+        mapImgRep = M.fromList . map (\(o, _, ph) -> (o,ph{imgLink = makeRelative (takeDirectory output) (imgLink ph)})) $ imld
         repImg :: ImageLink -> ImageLink
         repImg il@ImageLink{imgLink = o} = fromMaybe il . M.lookup o $ mapImgRep
         repIssueImgs i@Issue{issueDescription = Just d} = i{issueDescription = Just . replaceImageLinks repImg $ d}
@@ -131,6 +138,8 @@ generateBugReport opt' = do
         validBugs = either (const []) id . sequence . filter isRight $ bugsPrepped
     createDirectoryIfMissing True . dropFileName $ output
     writeFile (dropExtension output ++ "_problematic_issues.csv") . printCSV $ invalidBugsCsv
-    writeFile output . writeMarkdown (def {writerColumns = 120, writerWrapText = True} ) . Pandoc nullMeta . makeReport $ validBugs
+    let report = makeReport ct validBugs
+    writeFile output . writeMarkdown (def {writerColumns = 120, writerWrapText = True} ) . Pandoc nullMeta $ report
+    writeFile (dropExtension output ++ ".html") . writeHtmlString (def {writerColumns = 120, writerWrapText = True} ) . Pandoc nullMeta $ report
     withSocketsDo . withManager $ \m -> do
         fetchImagesLocal m (B.pack . fromMaybe "" . optUsr $ opt) (B.pack . fromMaybe "" . optPwd $ opt) (S.toList . S.fromList $ imgs)

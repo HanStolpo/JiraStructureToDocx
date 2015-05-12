@@ -574,7 +574,9 @@ issueImageLocalizeInfo pfx = foldr f []
                                         Just a -> (imgLink, attUri a, il'):ls
                                         Nothing -> (imgLink, imgLink, il'):ls
             where
-                il' = il{imgLink = normalise . combine pfx . (k ++) . ("-" ++) . takeFileName $ imgLink}
+                il' = il{imgLink = normalise . map fc . combine pfx . (k ++) . ("-" ++) . takeFileName $ imgLink}
+                fc c | c `elem` "%#?&" = '_'
+                     | otherwise = c
 
 -------------------------------------------------
 -- Debug main
