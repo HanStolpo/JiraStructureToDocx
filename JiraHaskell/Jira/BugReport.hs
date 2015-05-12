@@ -127,7 +127,9 @@ generateBugReport opt' = do
         output = fromJust . optFileOutput $ opt
         imld = issueImageLocalizeInfo (dropExtension output ++ "_images") bugs
         imgs = map (\(_, uri, ph) -> (uri, imgLink ph)) imld
-        mapImgRep = M.fromList . map (\(o, _, ph) -> (o,ph{imgLink = makeRelative (takeDirectory output) (imgLink ph)})) $ imld
+        -- fixPh p =  map (\c -> if c == '\\' then '/' else c) . makeRelative (takeDirectory output) $ p
+        fixPh p = makeRelative (takeDirectory output) $ p
+        mapImgRep = M.fromList . map (\(o, _, ph) -> (o,ph{imgLink = fixPh . imgLink $ ph})) $ imld
         repImg :: ImageLink -> ImageLink
         repImg il@ImageLink{imgLink = o} = fromMaybe il . M.lookup o $ mapImgRep
         repIssueImgs i@Issue{issueDescription = Just d} = i{issueDescription = Just . replaceImageLinks repImg $ d}

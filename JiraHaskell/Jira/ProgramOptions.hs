@@ -49,6 +49,7 @@ data Options = Options  { optOperation          :: Operation
                         , optUseLinkedIssueAsId :: Maybe String
                         , optFileInput          :: Maybe String
                         , optFileOutput         :: Maybe String
+                        , optPandocDataDir      :: Maybe String
                         } deriving (Show, Data, Typeable, Generic)
 -- Make Options pretty printable
 instance Out Options
@@ -70,6 +71,7 @@ optionsDefault = Options { optOperation             = FetchOnly
                          , optUseLinkedIssueAsId    = Nothing
                          , optFileInput             = Nothing
                          , optFileOutput            = Nothing
+                         , optPandocDataDir         = Nothing
                          }
 
 options :: Options
@@ -98,6 +100,7 @@ options = Options { optOperation        = enum  [ FetchOnly     &= explicit &= n
                   , optUseLinkedIssueAsId   = def  &= explicit &= name "use-linked-issue-as-id"     &= help "use ID of the issue linked through the named relationship for the issue ID instead of its actual ID" 
                   , optFileInput            = def  &= explicit &= name "input"                      &= help "File to be used as input to the operation." 
                   , optFileOutput           = def  &= explicit &= name "output"                     &= help "File to be used as output for the operation." 
+                  , optPandocDataDir        = def  &= explicit &= name "pandoc-data-dir"            &= help "Optional path to use for the pandoc data directory (where it looks for template files) when using gen-docx" 
                   } &= program "JiraStructureToDocX"
             where
                 defH = optHierarchyFile optionsDefault
@@ -154,8 +157,8 @@ validate opts@(Options {optOperation =  GenBugReport, ..}) = do
                 }
 
 validate opts@(Options {optOperation =  GenDocX, ..}) = do
-    let input =  fromJustNote "input is required" $ optFileInput
-    doesFileExist input >>= flip when (fail "input file does not exist")
+    let input =  fromJustNote "input is required" optFileInput
+    doesFileExist input >>= flip unless (fail ("input file does not exist " ++ input))
     return opts {optFileOutput = Just $ fromJustNote "output is required" optFileOutput, optFileInput = Just input}
 
 _validateFetchStrStd :: Bool -> Options -> IO Options
