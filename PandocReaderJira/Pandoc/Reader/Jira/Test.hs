@@ -447,6 +447,19 @@ descriptionParserTests = test
                                 ++ "-- BD"
                                 ),
 
+            "quoted text" ~:
+                Right (toList . blockQuote $ bulletList [ para . str <| "A", para . str <| "B"]
+                                           <> para . str <| "c" 
+                                        
+                      )
+                ~=? testP prsDesc ("{quote} \n"
+                                ++ "* A\n"
+                                ++ "* B \n"
+                                ++ "\n"
+                                ++ "c\n"
+                                ++ "{quote}"
+                                ),
+
             "dummy end" ~: True ~=? True
         ]
 

@@ -53,7 +53,7 @@ type MyParser = Parsec String ParseState
 -- Enclosed parsing
 ---------------------------------------------------------------------------------------------
 
-data EncType = EncStrong | EncEmph | EncSub | EncSup | EncDel | EncIns | EncTable | EncTableCell | EncTableRow | EncList String | EncPara | EncCite | EncMono | EncImage deriving (Show, Eq, Ord)
+data EncType = EncStrong | EncEmph | EncSub | EncSup | EncDel | EncIns | EncTable | EncTableCell | EncTableRow | EncList String | EncPara | EncCite | EncMono | EncImage | EncQuote deriving (Show, Eq, Ord)
 
 isInEnc :: EncType -> MyParser Bool
 isInEnc t =  isJust . find ((t==) . fst) . psEncStack <$> getState
@@ -267,7 +267,7 @@ notFollowedBy' p = try $ ((False <$ try p) <|> return True) >>= guard
 ---------------------------------------------------------------------------------------------
 
 anyBlock :: MyParser Block
-anyBlock = oneOfBlocks [emptyLines, table, heading, horizRule, numberedList, bulletList, paragraph]
+anyBlock = oneOfBlocks [emptyLines, table, heading, horizRule, numberedList, bulletList, paragraph, quoted]
 
 oneOfBlocks :: [MyParser Block] -> MyParser Block
 oneOfBlocks bs = choice . map perB $ bs
@@ -365,6 +365,7 @@ anyList t = do
                              , void . lookAhead . try $ blankLine
                              , void . lookAhead . try $ horizRule
                              , void . lookAhead . try $ headingStart
+                             , lookAhead . try $ endOrStartBlockQuote
                              ]
                 -- check for lower list 
                 lowerList = (< d) . length . snd <$> anyListStart >>= guard
@@ -382,14 +383,29 @@ anyList t = do
             
 
 paragraph :: MyParser Block
-paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . collapseInlines <$> manyEnd1' mzero e i >>= (<$ (optional . try $ restOfLine))
+paragraph = getInline >>= \i -> nonReEntrant EncPara $ Para . dropTrailSpace . collapseInlines <$> manyEnd1' mzero e i >>= (<$ (optional . try $ restOfLine))
     where
         e = choice $ map (lookAhead . try) [ void blankLine
                                            , void tableStart
                                            , void headingStart
                                            , void anyListStart
                                            , void horizRule
+                                           , endOrStartBlockQuote
                                            , void eof]
+        dropTrailSpace is = reverse . dropWhile chkSpace . reverse $ is
+        chkSpace Space = True
+        chkSpace _ = False
+
+endOrStartBlockQuote :: MyParser ()
+endOrStartBlockQuote = void (bol >> many space >> string "{quote}" >> (optional . try $ restOfLine))
+
+quoted :: MyParser Block
+quoted =  nonReEntrant EncQuote $ BlockQuote . filter noNull <$> (s >> manyEnd1' mzero e anyBlock) >>= (<$ (optional . try $ restOfLine))
+    where
+        s = endOrStartBlockQuote
+        e = endOrStartBlockQuote
+        noNull Null = False
+        noNull _ = True
 
 ---------------------------------------------------------------------------------------------
 -- Inline parsing
